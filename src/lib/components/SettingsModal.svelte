@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { app } from '#lib/mistwalk.svelte.ts';
+	import MemberPanel from './MemberPanel.svelte';
 
 	let fileInput: HTMLInputElement | null = $state(null);
 	let trackInput: HTMLInputElement | null = $state(null);
@@ -13,7 +14,19 @@
 	function submitCloudEmail(event: SubmitEvent) {
 		event.preventDefault();
 		const data = new FormData(event.currentTarget as HTMLFormElement);
-		void app.signInCloud(String(data.get('cloud-email') || ''));
+		void app.sendCloudCode(String(data.get('cloud-email') || ''));
+	}
+
+	function submitCloudCode(event: SubmitEvent) {
+		event.preventDefault();
+		const data = new FormData(event.currentTarget as HTMLFormElement);
+		void app.verifyCloudCode(String(data.get('cloud-code') || ''));
+	}
+
+	function submitCloudInvite(event: SubmitEvent) {
+		event.preventDefault();
+		const data = new FormData(event.currentTarget as HTMLFormElement);
+		void app.redeemCloudInvite(String(data.get('cloud-invite') || ''));
 	}
 
 	async function importFile(event: Event) {
@@ -302,23 +315,77 @@
 				</section>
 
 				<section class="settings-section">
-					<h3>Cloud backup <span class="cloud-optional">optional</span></h3>
+					<h3>
+						Account and sync
+						<span class="cloud-optional">
+							{#if !app.state.cloud.configured}
+								local
+							{:else if app.state.cloud.sample}
+								sample
+							{:else if app.state.cloud.status === 'approved'}
+								synced
+							{:else}
+								locked
+							{/if}
+						</span>
+					</h3>
 					{#if !app.state.cloud.configured}
-						<p class="field-note">
-							Cloud backup is not configured for this deployment. Add Supabase environment variables
-							to enable magic-link sign-in and a private backup row.
-						</p>
-					{:else if app.state.cloud.user}
 						<div class="cloud-card">
-							<strong>{app.state.cloud.user.email || 'Signed in'}</strong>
+							<strong>Local-only mode</strong>
+							<p class="cloud-status">
+								This deployment has no Supabase connection. Progress stays on this device and
+								everything works without an account.
+							</p>
+							<p class="field-note">
+								Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to turn on
+								accounts, approval and cross-device sync.
+							</p>
+						</div>
+					{:else if app.state.cloud.sample}
+						<div class="cloud-card">
+							<strong>Sample simulator</strong>
 							<p class="cloud-status">{app.state.cloud.message}</p>
+							<p class="field-note">
+								Sample progress is temporary and never uploaded. Sign in to request a permanent,
+								approved map.
+							</p>
+							<div class="cloud-actions">
+								<button class="btn btn--primary" type="button" onclick={() => app.exitSample()}
+									>{app.state.cloud.status === 'pending' ? 'Check approval' : 'Sign in'}</button
+								>
+								{#if app.state.cloud.user}
+									<button class="btn btn--ghost" type="button" onclick={() => app.signOutCloud()}
+										>Sign out</button
+									>
+								{/if}
+							</div>
+						</div>
+					{:else if app.state.cloud.status === 'checking'}
+						<p class="cloud-status">Checking your access…</p>
+					{:else if app.state.cloud.status === 'approved' && app.state.cloud.user}
+						<div class="cloud-card">
+							<div class="cloud-identity">
+								<strong>{app.state.cloud.user.email || 'Signed in'}</strong>
+								<span class="cloud-badge">
+									{app.state.cloud.member?.role === 'admin' ? 'Owner' : 'Approved explorer'}
+								</span>
+							</div>
+							<p class="cloud-status">{app.state.cloud.message}</p>
+							{#if app.state.cloud.syncMessage}
+								<p class="cloud-sync-state">{app.state.cloud.syncMessage}</p>
+							{/if}
 							<p class="storage-usage">{savedAtLabel(app.state.cloud.lastSavedAt)}</p>
+							<p class="field-note">
+								Auto-sync is on. New walks upload a few seconds after each save, and a newer cloud
+								copy can be restored on any device.
+							</p>
 							<div class="cloud-actions">
 								<button
 									class="btn btn--primary"
 									type="button"
-									disabled={app.state.cloud.busy}
-									onclick={() => app.uploadCloud()}>Upload backup</button
+									disabled={app.state.cloud.busy || app.state.cloud.syncState === 'saving'}
+									onclick={() => app.syncNow()}
+									>{app.state.cloud.syncState === 'saving' ? 'Syncing…' : 'Sync now'}</button
 								>
 								<button
 									class="btn btn--ghost"
@@ -340,24 +407,112 @@
 								>
 							</div>
 						</div>
+						{#if app.isAdmin()}
+							<MemberPanel />
+						{/if}
+					{:else if app.state.cloud.user}
+						<div class="cloud-card">
+							<div class="cloud-identity">
+								<strong>{app.state.cloud.user.email || 'Signed in'}</strong>
+								<span class="cloud-badge">
+									{app.state.cloud.status === 'pending'
+										? 'Pending'
+										: app.state.cloud.status === 'error'
+											? 'Check failed'
+											: 'Closed'}
+								</span>
+							</div>
+							<p class="cloud-status">{app.state.cloud.message}</p>
+							{#if app.state.cloud.status === 'pending'}
+								<form class="cloud-form" onsubmit={submitCloudInvite}>
+									<label for="cloud-invite">Invite code</label>
+									<div class="input-row">
+										<input
+											id="cloud-invite"
+											name="cloud-invite"
+											type="text"
+											autocomplete="off"
+											autocapitalize="characters"
+											spellcheck="false"
+											placeholder="ABCD1234EFGH"
+										/>
+										<button
+											class="btn btn--primary"
+											type="submit"
+											disabled={app.state.cloud.inviteBusy}
+											>{app.state.cloud.inviteBusy ? 'Checking…' : 'Redeem'}</button
+										>
+									</div>
+								</form>
+							{:else if app.state.cloud.status === 'error'}
+								<button class="btn btn--ghost" type="button" onclick={() => app.refreshMembership()}
+									>Check again</button
+								>
+							{/if}
+							<div class="cloud-actions">
+								<button class="btn btn--ghost" type="button" onclick={() => app.enterSample()}
+									>Try the sample simulator</button
+								>
+								<button class="btn btn--ghost" type="button" onclick={() => app.signOutCloud()}
+									>Sign out</button
+								>
+							</div>
+						</div>
 					{:else}
-						<form class="input-row" onsubmit={submitCloudEmail}>
-							<input
-								name="cloud-email"
-								type="email"
-								autocomplete="email"
-								placeholder="you@example.com"
-								value={app.state.cloud.email}
-								required
-							/>
-							<button class="btn btn--primary" type="submit" disabled={app.state.cloud.busy}
-								>{app.state.cloud.busy ? 'Sending…' : 'Send link'}</button
-							>
-						</form>
+						{#if app.state.cloud.step === 'email'}
+							<form class="cloud-form" onsubmit={submitCloudEmail}>
+								<label for="cloud-email">Email</label>
+								<div class="input-row">
+									<input
+										id="cloud-email"
+										name="cloud-email"
+										type="email"
+										autocomplete="email"
+										placeholder="you@example.com"
+										value={app.state.cloud.email}
+										required
+									/>
+									<button class="btn btn--primary" type="submit" disabled={app.state.cloud.busy}
+										>{app.state.cloud.busy ? 'Sending…' : 'Send code'}</button
+									>
+								</div>
+							</form>
+						{:else}
+							<form class="cloud-form" onsubmit={submitCloudCode}>
+								<label for="cloud-code">Code sent to {app.state.cloud.email}</label>
+								<div class="input-row">
+									<input
+										id="cloud-code"
+										name="cloud-code"
+										type="text"
+										inputmode="numeric"
+										autocomplete="one-time-code"
+										autocapitalize="off"
+										spellcheck="false"
+										placeholder="123456"
+										required
+									/>
+									<button class="btn btn--primary" type="submit" disabled={app.state.cloud.busy}
+										>{app.state.cloud.busy ? 'Checking…' : 'Sign in'}</button
+									>
+								</div>
+							</form>
+							<div class="access-small-actions">
+								<button
+									class="micro-link"
+									type="button"
+									onclick={() => app.sendCloudCode(app.state.cloud.email)}>Resend code</button
+								>
+								<button class="micro-link" type="button" onclick={() => app.backToEmailStep()}
+									>Use a different email</button
+								>
+							</div>
+						{/if}
 						<p class="cloud-status">{app.state.cloud.message}</p>
 						<p class="field-note">
-							A magic link signs you in without a password. Your local map stays authoritative;
-							upload or restore only when you choose.
+							Sign in with a one-time email code, then wait for the owner to approve this account.
+							Until then you can try the sample simulator. Built-in Supabase email only reaches
+							project team addresses, so invited explorers need custom SMTP.
 						</p>
 					{/if}
 				</section>

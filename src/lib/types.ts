@@ -284,6 +284,30 @@ export interface Settings {
 	lastProfile: ProfileName;
 }
 
+export type MemberStatus = 'pending' | 'approved' | 'rejected';
+export type MemberRole = 'admin' | 'member';
+export type AccessStatus =
+	'local' | 'checking' | 'signed-out' | 'pending' | 'approved' | 'rejected' | 'error';
+
+export interface MemberRecord {
+	user_id: string;
+	email: string | null;
+	status: MemberStatus;
+	role: MemberRole;
+	created_at: string;
+	decided_at: string | null;
+	decided_by: string | null;
+}
+
+export interface InviteRecord {
+	code: string;
+	created_by: string;
+	created_at: string;
+	expires_at: string;
+	used_by: string | null;
+	used_at: string | null;
+}
+
 export interface BackupFile {
 	app: 'MistWalk';
 	format: number;

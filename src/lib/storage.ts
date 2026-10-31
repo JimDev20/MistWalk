@@ -1,7 +1,14 @@
 /* MistWalk storage — local-only, dual-written to localStorage + IndexedDB. */
 
 import { createProgress, migrateProgress } from './core.ts';
-import type { BackupFile, ImportedBackup, ProfileName, Progress, Settings } from './types.ts';
+import type {
+	BackupFile,
+	ImportedBackup,
+	MemberRecord,
+	ProfileName,
+	Progress,
+	Settings
+} from './types.ts';
 
 const DB_NAME = 'mistwalk';
 const DB_VERSION = 1;
@@ -10,6 +17,7 @@ const LS_PREFIX = 'mistwalk';
 const PROFILE_KEY = (profile: ProfileName) => `${LS_PREFIX}:${profile}:v1`;
 const SETTINGS_KEY = `${LS_PREFIX}:settings:v1`;
 const META_KEY = `${LS_PREFIX}:meta:v1`;
+const MEMBER_KEY = `${LS_PREFIX}:member:v1`;
 
 export const DEFAULT_SETTINGS = Object.freeze({
 	provider: 'osm',
@@ -220,6 +228,32 @@ export async function clearProfile(profile: ProfileName): Promise<void> {
 	await idbDelete(profile);
 }
 
+/** Most recent local save across both profiles, in milliseconds. */
+export function lastLocalSavedAt(): number {
+	let newest = 0;
+	for (const profile of ['live', 'demo'] as ProfileName[]) {
+		const payload = safeParse(lsGet(PROFILE_KEY(profile))) as { savedAt?: unknown } | null;
+		const savedAt = Number(payload?.savedAt);
+		if (Number.isFinite(savedAt) && savedAt > newest) newest = savedAt;
+	}
+	return newest;
+}
+
+export function cacheMembership(member: MemberRecord | null): void {
+	if (!member) {
+		lsRemove(MEMBER_KEY);
+		return;
+	}
+	lsSet(MEMBER_KEY, JSON.stringify(member));
+}
+
+export function cachedApprovedMembership(userId: string): MemberRecord | null {
+	if (!userId) return null;
+	const payload = safeParse(lsGet(MEMBER_KEY)) as MemberRecord | null;
+	if (!payload || payload.user_id !== userId || payload.status !== 'approved') return null;
+	return payload;
+}
+
 export async function clearAll(): Promise<void> {
 	for (const profile of ['live', 'demo'] as ProfileName[]) {
 		lsRemove(PROFILE_KEY(profile));
@@ -227,6 +261,7 @@ export async function clearAll(): Promise<void> {
 	}
 	lsRemove(SETTINGS_KEY);
 	lsRemove(META_KEY);
+	lsRemove(MEMBER_KEY);
 }
 
 /* ------------------------------------------------------------------ */

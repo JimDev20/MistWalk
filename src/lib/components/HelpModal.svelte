@@ -43,7 +43,8 @@
 					<h3>Private by construction</h3>
 					<p>
 						No analytics. Your tiles, trail, and stats stay in this browser's local storage with an
-						IndexedDB mirror. Supabase cloud backup is optional and uses magic-link sign-in.
+						IndexedDB mirror. On private deployments, approved accounts can sync with Supabase using
+						a one-time email code. Guests can use the temporary sample simulator.
 					</p>
 				</article>
 				<article class="help-card">

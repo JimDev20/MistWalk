@@ -29,10 +29,12 @@
 				</button>
 			</div>
 			<p class="micro-note">
-				Local-first. No account required. Cloud backup is optional. <button
-					class="micro-link"
-					type="button"
-					onclick={() => app.openHelp()}>How it works</button
+				{#if app.state.cloud.configured}
+					Approved account. Your map syncs privately across devices.
+				{:else}
+					Local-first. No account required. Cloud backup is optional.
+				{/if}
+				<button class="micro-link" type="button" onclick={() => app.openHelp()}>How it works</button
 				>
 			</p>
 		</div>

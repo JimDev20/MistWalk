@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { app } from '#lib/mistwalk.svelte.ts';
+	import AccessGate from './AccessGate.svelte';
 	import BootScreen from './BootScreen.svelte';
 	import GpsModal from './GpsModal.svelte';
 	import HelpModal from './HelpModal.svelte';
@@ -10,6 +11,7 @@
 	import Onboarding from './Onboarding.svelte';
 	import PositionCard from './PositionCard.svelte';
 	import ReplayPanel from './ReplayPanel.svelte';
+	import SampleBanner from './SampleBanner.svelte';
 	import SearchModal from './SearchModal.svelte';
 	import SettingsModal from './SettingsModal.svelte';
 	import SimPanel from './SimPanel.svelte';
@@ -32,6 +34,10 @@
 	<Toasts />
 	<UnlockFlash />
 
+	{#if app.state.cloud.sample}
+		<SampleBanner />
+	{/if}
+
 	{#if app.state.onboarding}
 		<Onboarding />
 	{/if}
@@ -50,6 +56,10 @@
 	<SearchModal />
 	<GpsModal />
 	<JourneyModal />
+
+	{#if app.accessGateVisible()}
+		<AccessGate />
+	{/if}
 </div>
 
 <BootScreen />

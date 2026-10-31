@@ -27,10 +27,13 @@ import {
 	unlockCells
 } from './core.ts';
 import {
+	cacheMembership,
+	cachedApprovedMembership,
 	clearAll,
 	clearProfile,
 	exportBackup as createBackup,
 	importBackup,
+	lastLocalSavedAt,
 	loadProfileAsync,
 	loadSettings,
 	localUsageBytes,
@@ -46,6 +49,8 @@ import type {
 	FixInput,
 	ImportedBackup,
 	MapEngine,
+	MemberRecord,
+	MemberStatus,
 	PathPoint,
 	ReplayTrackInput,
 	SearchResult,
@@ -67,11 +72,17 @@ import { buildGeoJSON, buildGpx, parseTrackFile } from './track.ts';
 import {
 	cloudConfigured,
 	cloudSignOut,
+	createInviteCode,
 	deleteCloudBackup,
 	fetchCloudBackup,
 	fetchCloudMeta,
-	sendMagicLink,
+	fetchMembers,
+	fetchMembership,
+	redeemInviteCode,
+	sendEmailCode,
+	setMemberStatus,
 	uploadCloudBackup,
+	verifyEmailCode,
 	watchCloudAuth
 } from './cloud.ts';
 
@@ -229,11 +240,22 @@ class MistWalk {
 		journey: { tab: 'overview' },
 		cloud: {
 			configured: cloudConfigured,
+			status: cloudConfigured ? 'checking' : 'local',
 			user: null,
+			member: null,
 			email: '',
 			busy: false,
-			message: cloudConfigured ? 'Cloud backup ready.' : 'Cloud backup is not configured.',
-			lastSavedAt: 0
+			step: 'email',
+			code: '',
+			sample: false,
+			message: cloudConfigured ? 'Checking your access…' : 'Cloud sync is not configured.',
+			lastSavedAt: 0,
+			syncState: 'idle',
+			syncMessage: '',
+			members: [],
+			membersBusy: false,
+			inviteCode: '',
+			inviteBusy: false
 		},
 		now: Date.now(),
 		debug: false
@@ -273,6 +295,16 @@ class MistWalk {
 	hideFinalizeTimer: ReturnType<typeof setTimeout> | null = null;
 	earnedAchievements: Set<string> | null = null;
 	cloudStop: (() => void) | null = null;
+	cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
+	cloudSyncInFlight = false;
+	cloudDirty = false;
+	cloudSyncFailures = 0;
+	cloudCheckAt = 0;
+	lastSeenRemoteAt = 0;
+	accessCheckAt = 0;
+	membershipSeq = 0;
+	approvedHandledFor = '';
+	sampleReturnProfile: 'live' | 'demo' = 'live';
 	toastId = 0;
 	lastFocus: HTMLElement | null = null;
 
@@ -311,7 +343,10 @@ class MistWalk {
 
 		this.refreshAll();
 
-		if (!this.state.onboarded) {
+		if (cloudConfigured) {
+			this.state.onboarding = false;
+			this.state.tracking = 'idle';
+		} else if (!this.state.onboarded) {
 			this.showOnboarding();
 		} else {
 			this.hideOnboarding(true);
@@ -322,6 +357,7 @@ class MistWalk {
 		this.bindWindowEvents();
 		this.setupServiceWorker();
 		this.exposeDebugApi();
+		void this.requestPersistentStorage();
 		void this.initCloud();
 		void this.initBattery();
 
@@ -333,11 +369,20 @@ class MistWalk {
 				this.state.onboarded &&
 				this.state.profile === 'live' &&
 				this.state.tracking === 'idle' &&
-				!this.state.modal
+				!this.state.modal &&
+				(!cloudConfigured || this.state.cloud.status === 'approved')
 			) {
 				this.toast('GPS is standing by. Press Start GPS when you are ready to walk.', 'info', 5000);
 			}
 		}, 1800);
+	}
+
+	async requestPersistentStorage(): Promise<void> {
+		try {
+			if (navigator.storage?.persist) await navigator.storage.persist();
+		} catch {
+			/* Storage persistence is best-effort. */
+		}
 	}
 
 	bindWindowEvents() {
@@ -986,6 +1031,7 @@ class MistWalk {
 
 	async maybeAutoStartLive() {
 		if (this.state.profile !== 'live') return;
+		if (this.liveAccessBlocked()) return;
 		if (!navigator.geolocation) {
 			this.state.tracking = 'error';
 			this.refreshStatus();
@@ -1039,6 +1085,10 @@ class MistWalk {
 
 	async startLiveTracking({ userInitiated = false } = {}) {
 		if (this.state.profile !== 'live' || this.watchId !== null) return;
+		if (this.liveAccessBlocked()) {
+			if (userInitiated) this.noteAccessRequired();
+			return;
+		}
 		if (!navigator.geolocation) {
 			this.state.tracking = 'error';
 			this.refreshStatus();
@@ -1862,6 +1912,10 @@ class MistWalk {
 
 	async switchProfile(next: string): Promise<void> {
 		if (next !== 'live' && next !== 'demo') return;
+		if (next === 'live' && (this.state.cloud.sample || this.liveAccessBlocked())) {
+			this.noteAccessRequired();
+			return;
+		}
 		if (next === this.state.profile) {
 			if (next === 'demo') this.enterDemo();
 			return;
@@ -1915,6 +1969,7 @@ class MistWalk {
 
 	saveNow() {
 		if (!this.state.progress) return;
+		if (this.state.cloud.sample) return;
 		this.state.profiles[this.state.profile] = this.state.progress;
 		if (this.map) {
 			this.state.progress.last = {
@@ -1929,6 +1984,7 @@ class MistWalk {
 			saveProfile(this.state.profile, this.state.progress);
 			saveSettings(this.state.settings);
 			this.state.ui.storageUsage = `Local storage: ${this.formatBytes(localUsageBytes())} · IndexedDB mirror on`;
+			this.queueCloudUpload();
 		} catch (err) {
 			console.warn('MistWalk save failed', err);
 			this.toast('Could not save progress. Export a backup now.', 'error', 6000);
@@ -1999,6 +2055,7 @@ class MistWalk {
 		if (document.hidden) {
 			this.hiddenAt = Date.now();
 			this.saveNow();
+			if (this.canAutoSync()) void this.flushCloudUpload();
 			this.releaseWakeLock();
 			if (this.hideFinalizeTimer) clearTimeout(this.hideFinalizeTimer);
 			this.hideFinalizeTimer = setTimeout(() => {
@@ -2016,6 +2073,8 @@ class MistWalk {
 				this.hasCentered = false;
 			}
 			this.state.sim.lastFrame = 0;
+			void this.checkAccess();
+			void this.checkRemoteUpdates();
 			if (this.state.profile === 'live' && this.state.tracking === 'live')
 				void this.acquireWakeLock();
 			if (this.map) {
@@ -2155,6 +2214,10 @@ class MistWalk {
 	}
 
 	async startGps() {
+		if (this.liveAccessBlocked()) {
+			this.noteAccessRequired();
+			return;
+		}
 		this.state.onboarded = true;
 		this.state.settings.onboarded = true;
 		this.state.settings.lastProfile = 'live';
@@ -2283,6 +2346,10 @@ class MistWalk {
 	/* ------------------------------------------------------------------ */
 
 	downloadBackup() {
+		if (this.state.cloud.sample) {
+			this.toast('Sample mode does not export. Sign in and get approved first.', 'warn', 4200);
+			return;
+		}
 		this.saveNow();
 		const data = createBackup(
 			this.state.profiles.live,
@@ -2315,6 +2382,10 @@ class MistWalk {
 	}
 
 	exportTracks(format = 'gpx') {
+		if (this.state.cloud.sample) {
+			this.toast('Sample mode does not export. Sign in and get approved first.', 'warn', 4200);
+			return;
+		}
 		this.saveNow();
 		const progress = this.state.progress;
 		if (!progress) return;
@@ -2418,6 +2489,14 @@ class MistWalk {
 
 	async handleImportFile(file: File): Promise<void> {
 		if (!file) return;
+		if (this.state.cloud.sample) {
+			this.toast(
+				'Sample mode does not import backups. Sign in and get approved first.',
+				'warn',
+				4200
+			);
+			return;
+		}
 		try {
 			const parsed = JSON.parse(await file.text());
 			const imported = importBackup(parsed);
@@ -2475,6 +2554,10 @@ class MistWalk {
 	}
 
 	async resetProfile() {
+		if (this.state.cloud.sample) {
+			this.toast('Sample mode does not reset saved maps.', 'warn', 4200);
+			return;
+		}
 		const name = this.state.profile === 'live' ? 'live map' : 'simulator map';
 		if (
 			!window.confirm(
@@ -2503,6 +2586,10 @@ class MistWalk {
 	}
 
 	async wipeLocalData() {
+		if (this.state.cloud.sample) {
+			this.toast('Sample mode does not erase device data.', 'warn', 4200);
+			return;
+		}
 		if (
 			!window.confirm(
 				'Delete every local MistWalk profile, walk, note, and setting on this device? Cloud copies are separate and must be deleted from Settings first. This cannot be undone.'
@@ -2515,35 +2602,234 @@ class MistWalk {
 	}
 
 	/* ------------------------------------------------------------------ */
-	/* Cloud backup                                                        */
+	/* Access, accounts and cloud sync                                     */
 	/* ------------------------------------------------------------------ */
+
+	liveAccessBlocked(): boolean {
+		if (this.state.cloud.sample) return true;
+		if (!cloudConfigured) return false;
+		return this.state.cloud.status !== 'approved';
+	}
+
+	accessGateVisible(): boolean {
+		if (!cloudConfigured) return false;
+		if (this.state.cloud.sample) return false;
+		return this.state.cloud.status !== 'approved';
+	}
+
+	isAdmin(): boolean {
+		return (
+			this.state.cloud.member?.role === 'admin' &&
+			this.state.cloud.member?.status === 'approved' &&
+			this.state.cloud.status === 'approved'
+		);
+	}
+
+	canAutoSync(): boolean {
+		return Boolean(
+			cloudConfigured &&
+			!this.state.cloud.sample &&
+			this.state.cloud.user &&
+			this.state.cloud.member?.status === 'approved' &&
+			this.state.cloud.status === 'approved'
+		);
+	}
+
+	noteAccessRequired(): void {
+		this.toast('Sign in and get approved to use the live map.', 'warn', 4200);
+	}
 
 	async initCloud() {
 		if (!cloudConfigured) return;
-		this.state.cloud.message = 'Checking cloud session…';
-		this.cloudStop = await watchCloudAuth(async (user) => {
-			this.state.cloud.user = user;
-			if (user) {
-				this.state.cloud.email = user.email || '';
-				this.state.cloud.message = `Signed in as ${user.email || 'explorer'}.`;
-				await this.refreshCloudMeta();
-			} else {
-				this.state.cloud.message = 'Sign in with a magic link to back up to Supabase.';
-				this.state.cloud.lastSavedAt = 0;
-			}
-		});
-	}
-
-	async refreshCloudMeta() {
+		this.state.cloud.message = 'Checking your access…';
 		try {
-			const meta = await fetchCloudMeta();
-			this.state.cloud.lastSavedAt = meta?.saved_at || 0;
+			this.cloudStop = await watchCloudAuth(async (user) => {
+				this.state.cloud.user = user;
+				if (!user) {
+					this.saveNow();
+					this.suspendActivity();
+					this.cancelCloudSync();
+					this.cloudDirty = false;
+					cacheMembership(null);
+					this.state.cloud.member = null;
+					this.state.cloud.status = 'signed-out';
+					this.state.cloud.step = 'email';
+					this.state.cloud.code = '';
+					this.state.cloud.members = [];
+					this.state.cloud.lastSavedAt = 0;
+					this.state.cloud.syncState = 'idle';
+					this.state.cloud.syncMessage = '';
+					this.state.cloud.inviteCode = '';
+					this.approvedHandledFor = '';
+					this.lastSeenRemoteAt = 0;
+					this.state.cloud.message = 'Sign in to request access.';
+					return;
+				}
+				this.state.cloud.email = user.email || '';
+				await this.refreshMembership();
+			});
 		} catch (err) {
-			console.warn('Cloud metadata failed', err);
+			this.state.cloud.status = 'error';
+			this.state.cloud.message =
+				errorMessage(err) ||
+				'The cloud session could not be checked. You can still try the sample.';
 		}
 	}
 
-	async signInCloud(email: string): Promise<void> {
+	async refreshMembership(): Promise<void> {
+		const seq = ++this.membershipSeq;
+		try {
+			const member = await fetchMembership();
+			if (seq !== this.membershipSeq) return;
+			this.state.cloud.member = member;
+			if (!member) {
+				const cached = !navigator.onLine
+					? cachedApprovedMembership(this.state.cloud.user?.id || '')
+					: null;
+				if (cached) {
+					this.state.cloud.member = cached;
+					this.state.cloud.status = 'approved';
+					this.approvedHandledFor = '';
+					this.state.cloud.message = 'Offline. Using cached approval; cloud sync will retry.';
+					this.showApprovedShell();
+					return;
+				}
+				cacheMembership(null);
+				this.state.cloud.status = 'pending';
+				this.state.cloud.message =
+					'This account has no membership row yet. Install the Supabase schema, then sign in again.';
+				return;
+			}
+			cacheMembership(member);
+			this.state.cloud.status = member.status;
+			if (member.status === 'approved') {
+				this.state.cloud.message =
+					member.role === 'admin' ? 'Owner access approved.' : 'Access approved.';
+				await this.afterApproved(member);
+			} else if (member.status === 'pending') {
+				this.approvedHandledFor = '';
+				this.cancelCloudSync();
+				this.cloudDirty = false;
+				this.state.cloud.message = 'Waiting for the owner to approve this account.';
+			} else {
+				this.approvedHandledFor = '';
+				this.cancelCloudSync();
+				this.cloudDirty = false;
+				this.state.cloud.message = 'This account was not approved.';
+			}
+		} catch (err) {
+			if (seq !== this.membershipSeq) return;
+			const cached = cachedApprovedMembership(this.state.cloud.user?.id || '');
+			if (cached) {
+				this.state.cloud.member = cached;
+				this.state.cloud.status = 'approved';
+				this.approvedHandledFor = '';
+				this.state.cloud.message =
+					'Offline or the server is unreachable. Using cached approval; cloud sync will retry.';
+				this.showApprovedShell();
+				return;
+			}
+			this.state.cloud.status = 'error';
+			this.state.cloud.message =
+				errorMessage(err) ||
+				'Membership could not be verified. Check that the Supabase schema is installed.';
+		}
+	}
+
+	async checkAccess(): Promise<void> {
+		if (!cloudConfigured || !this.state.cloud.user || this.state.cloud.sample) return;
+		const now = Date.now();
+		if (now - this.accessCheckAt < 60000) return;
+		this.accessCheckAt = now;
+		try {
+			const member = await fetchMembership();
+			if (!member) {
+				const cached = !navigator.onLine
+					? cachedApprovedMembership(this.state.cloud.user?.id || '')
+					: null;
+				if (cached) {
+					this.state.cloud.member = cached;
+					this.state.cloud.status = 'approved';
+					this.approvedHandledFor = '';
+					this.state.cloud.message = 'Offline. Using cached approval; cloud sync will retry.';
+					return;
+				}
+				cacheMembership(null);
+				this.state.cloud.status = 'pending';
+				this.approvedHandledFor = '';
+				this.cancelCloudSync();
+				this.cloudDirty = false;
+				this.suspendActivity();
+				this.state.cloud.message =
+					'This account has no membership row yet. Ask the owner to check the deployment.';
+				return;
+			}
+			const previous = this.state.cloud.status;
+			this.state.cloud.member = member;
+			this.state.cloud.status = member.status;
+			if (member.status === 'approved') {
+				cacheMembership(member);
+				if (previous !== 'approved' || !this.approvedHandledFor) {
+					await this.afterApproved(member);
+				}
+			} else {
+				cacheMembership(member);
+				this.approvedHandledFor = '';
+				this.cancelCloudSync();
+				this.cloudDirty = false;
+				this.suspendActivity();
+				this.state.cloud.message =
+					member.status === 'pending'
+						? 'Waiting for the owner to approve this account.'
+						: 'This account was not approved.';
+			}
+		} catch (err) {
+			console.warn('Access check failed', err);
+		}
+	}
+
+	async afterApproved(member: MemberRecord): Promise<void> {
+		if (this.approvedHandledFor === member.user_id) {
+			await this.refreshCloudMeta();
+			return;
+		}
+		this.approvedHandledFor = member.user_id;
+
+		if (this.state.cloud.sample) {
+			await this.exitSample(false);
+		}
+
+		await this.refreshCloudMeta();
+		const remoteAt = this.state.cloud.lastSavedAt;
+		const localAt = lastLocalSavedAt();
+
+		if (remoteAt > 0 && remoteAt > localAt + 2000) {
+			const saved = new Date(remoteAt).toLocaleString();
+			if (
+				window.confirm(
+					`A newer cloud backup exists (${saved}). Restore it on this device? This replaces the local maps.`
+				)
+			) {
+				await this.restoreCloud(false);
+			}
+		} else if (localAt > 0 && localAt > remoteAt + 2000) {
+			await this.uploadCloud({ silent: true });
+		}
+
+		this.showApprovedShell();
+	}
+
+	showApprovedShell(): void {
+		if (!this.state.onboarded) {
+			this.showOnboarding();
+			return;
+		}
+		this.hideOnboarding(true);
+		if (this.state.profile === 'demo') this.enterDemo();
+		else void this.maybeAutoStartLive();
+	}
+
+	async sendCloudCode(email: string): Promise<void> {
 		const value = String(email || '').trim();
 		if (!value || !value.includes('@')) {
 			this.state.cloud.message = 'Enter a valid email address.';
@@ -2552,33 +2838,248 @@ class MistWalk {
 		this.state.cloud.busy = true;
 		this.state.cloud.email = value;
 		try {
-			await sendMagicLink(value);
-			this.state.cloud.message = 'Magic link sent. Open it on this device to finish signing in.';
-			this.toast('Check your email for the MistWalk sign-in link.', 'success', 5000);
+			await sendEmailCode(value);
+			this.state.cloud.step = 'code';
+			this.state.cloud.message =
+				'Code sent. Check your email and type the code here. On a shared browser, sign out when done.';
+			this.toast('Check your email for the 6-digit MistWalk code.', 'success', 5200);
 		} catch (err) {
-			this.state.cloud.message = errorMessage(err) || 'The magic link could not be sent.';
-			this.toast(this.state.cloud.message, 'error', 6000);
+			this.state.cloud.message = errorMessage(err) || 'The sign-in code could not be sent.';
+			this.toast(this.state.cloud.message, 'error', 6500);
 		} finally {
 			this.state.cloud.busy = false;
 		}
 	}
 
+	async verifyCloudCode(code: string): Promise<void> {
+		const token = String(code || '').replace(/\s+/g, '');
+		if (token.length < 6) {
+			this.state.cloud.message = 'Enter the code from your email.';
+			return;
+		}
+		this.state.cloud.busy = true;
+		this.state.cloud.code = token;
+		try {
+			await verifyEmailCode(this.state.cloud.email, token);
+			this.state.cloud.step = 'email';
+			this.state.cloud.code = '';
+			this.state.cloud.message = 'Signed in. Checking your access…';
+			await this.refreshMembership();
+		} catch (err) {
+			this.state.cloud.message = errorMessage(err) || 'That code was not accepted.';
+			this.toast(this.state.cloud.message, 'error', 6500);
+		} finally {
+			this.state.cloud.busy = false;
+		}
+	}
+
+	backToEmailStep(): void {
+		this.state.cloud.step = 'email';
+		this.state.cloud.code = '';
+		this.state.cloud.message = 'Enter your email to sign in or request access.';
+	}
+
 	async signOutCloud() {
 		try {
 			await cloudSignOut();
-			this.state.cloud.message = 'Signed out. Your local map is unchanged.';
-			this.toast('Signed out of cloud backup.', 'info', 3200);
+			this.saveNow();
+			this.suspendActivity();
+			this.cancelCloudSync();
+			this.cloudDirty = false;
+			this.cloudSyncFailures = 0;
+			this.state.cloud.lastSavedAt = 0;
+			this.state.cloud.syncState = 'idle';
+			this.state.cloud.syncMessage = '';
+			cacheMembership(null);
+			this.state.cloud.member = null;
+			this.state.cloud.status = 'signed-out';
+			this.state.cloud.user = null;
+			this.state.cloud.step = 'email';
+			this.state.cloud.code = '';
+			this.state.cloud.members = [];
+			this.state.cloud.inviteCode = '';
+			this.approvedHandledFor = '';
+			this.lastSeenRemoteAt = 0;
+			this.state.cloud.message = this.state.cloud.sample
+				? 'Sample mode. Sign in to request a real map.'
+				: 'Signed out. Your local map is unchanged.';
+			this.toast('Signed out. Local progress stays on this device.', 'info', 3600);
 		} catch (err) {
 			this.state.cloud.message = errorMessage(err) || 'Could not sign out.';
 		}
 	}
 
-	async uploadCloud() {
+	async redeemCloudInvite(code: string): Promise<void> {
+		const value = String(code || '').trim();
+		if (!value) {
+			this.state.cloud.message = 'Enter an invite code.';
+			return;
+		}
 		if (!this.state.cloud.user) {
-			this.toast('Sign in before uploading a cloud backup.', 'warn', 3600);
+			this.state.cloud.message = 'Sign in with your email first, then redeem the invite.';
+			return;
+		}
+		this.state.cloud.inviteBusy = true;
+		try {
+			await redeemInviteCode(value);
+			this.state.cloud.inviteCode = '';
+			this.toast('Invite accepted. Loading the map…', 'success', 4200);
+			await this.refreshMembership();
+		} catch (err) {
+			this.state.cloud.message = errorMessage(err) || 'That invite could not be redeemed.';
+			this.toast(this.state.cloud.message, 'error', 6000);
+		} finally {
+			this.state.cloud.inviteBusy = false;
+		}
+	}
+
+	async enterSample(): Promise<void> {
+		if (this.state.cloud.status === 'approved') {
+			await this.switchProfile('live');
+			return;
+		}
+		if (this.state.cloud.sample) return;
+		this.saveNow();
+		this.suspendActivity();
+		this.sampleReturnProfile = this.state.settings.lastProfile === 'demo' ? 'demo' : 'live';
+		this.state.cloud.sample = true;
+		this.state.cloud.step = 'email';
+		this.state.cloud.code = '';
+		this.state.cloud.message = 'Sample mode. Sign in to request a real map.';
+		const fresh = createProgress();
+		this.state.profiles = { ...this.state.profiles, demo: fresh };
+		this.state.profile = 'demo';
+		this.state.progress = fresh;
+		this.state.settings.lastProfile = 'demo';
+		this.state.onboarding = false;
+		this.enterDemo();
+		this.toast('Sample simulator. Progress is not saved.', 'info', 5200);
+	}
+
+	async exitSample(announce = true): Promise<void> {
+		if (!this.state.cloud.sample) return;
+		this.suspendActivity();
+		this.state.cloud.sample = false;
+		const [live, demo] = await Promise.all([loadProfileAsync('live'), loadProfileAsync('demo')]);
+		this.state.profiles = { live, demo };
+		const next = this.sampleReturnProfile;
+		this.state.profile = next;
+		this.state.progress = this.state.profiles[next];
+		this.state.settings.lastProfile = next;
+		saveSettings(this.state.settings);
+		this.gate.reset();
+		this.state.current = null;
+		this.state.tracking = 'idle';
+		this.newSession();
+		this.refreshAll();
+		this.setStatus('idle', 'Standby', 'GPS off');
+		if (next === 'demo') this.enterDemo();
+		if (announce) this.toast('Sample closed. Sign in to keep a real map.', 'info', 4200);
+		if (this.state.cloud.user && this.state.cloud.status !== 'approved') {
+			await this.refreshMembership();
+		}
+	}
+
+	async refreshCloudMeta() {
+		try {
+			const meta = await fetchCloudMeta();
+			this.state.cloud.lastSavedAt = meta?.saved_at || 0;
+			this.lastSeenRemoteAt = this.state.cloud.lastSavedAt;
+		} catch (err) {
+			console.warn('Cloud metadata failed', err);
+		}
+	}
+
+	cancelCloudSync(): void {
+		if (this.cloudSyncTimer) clearTimeout(this.cloudSyncTimer);
+		this.cloudSyncTimer = null;
+	}
+
+	queueCloudUpload(): void {
+		if (!this.canAutoSync()) return;
+		this.cloudDirty = true;
+		this.cancelCloudSync();
+		this.cloudSyncTimer = setTimeout(() => {
+			this.cloudSyncTimer = null;
+			void this.flushCloudUpload();
+		}, 9000);
+	}
+
+	async flushCloudUpload(): Promise<void> {
+		if (!this.canAutoSync() || !this.cloudDirty) return;
+		if (this.cloudSyncInFlight || this.state.cloud.busy) return;
+		this.cloudSyncInFlight = true;
+		this.state.cloud.syncState = 'saving';
+		this.state.cloud.syncMessage = 'Saving to your private cloud copy…';
+		try {
+			const backup = createBackup(
+				this.state.profiles.live,
+				this.state.profiles.demo,
+				this.state.settings
+			);
+			await uploadCloudBackup(backup);
+			this.cloudDirty = false;
+			this.cloudSyncFailures = 0;
+			this.state.cloud.lastSavedAt = Date.now();
+			this.lastSeenRemoteAt = this.state.cloud.lastSavedAt;
+			this.state.cloud.syncState = 'saved';
+			this.state.cloud.syncMessage = 'Synced to the cloud.';
+		} catch (err) {
+			this.cloudSyncFailures += 1;
+			this.state.cloud.syncState = 'error';
+			this.state.cloud.syncMessage = errorMessage(err) || 'Cloud sync failed.';
+			console.warn('Cloud sync failed', err);
+		} finally {
+			this.cloudSyncInFlight = false;
+			if (this.cloudDirty && this.cloudSyncFailures < 4) {
+				this.cancelCloudSync();
+				this.cloudSyncTimer = setTimeout(() => {
+					this.cloudSyncTimer = null;
+					void this.flushCloudUpload();
+				}, 15000 * this.cloudSyncFailures);
+			}
+		}
+	}
+
+	async checkRemoteUpdates(): Promise<void> {
+		if (!this.canAutoSync()) return;
+		const now = Date.now();
+		if (now - this.cloudCheckAt < 30000) return;
+		this.cloudCheckAt = now;
+		try {
+			const meta = await fetchCloudMeta();
+			const remoteAt = meta?.saved_at || 0;
+			this.state.cloud.lastSavedAt = remoteAt;
+			if (remoteAt > this.lastSeenRemoteAt + 2000 && remoteAt > lastLocalSavedAt() + 2000) {
+				this.state.cloud.syncState = 'idle';
+				this.state.cloud.syncMessage =
+					'A newer cloud backup is available. Open settings and restore it.';
+				this.toast('A newer cloud backup is available on another device.', 'info', 5200);
+			}
+			this.lastSeenRemoteAt = remoteAt;
+		} catch (err) {
+			console.warn('Cloud update check failed', err);
+		}
+	}
+
+	async syncNow(): Promise<void> {
+		if (!this.canAutoSync()) {
+			this.toast('Sign in with an approved account to sync.', 'warn', 3600);
+			return;
+		}
+		this.saveNow();
+		this.cloudDirty = true;
+		this.cloudSyncFailures = 0;
+		await this.flushCloudUpload();
+	}
+
+	async uploadCloud({ silent = false } = {}) {
+		if (!this.canAutoSync()) {
+			this.toast('Sign in with an approved account to upload.', 'warn', 3600);
 			return;
 		}
 		this.state.cloud.busy = true;
+		this.state.cloud.syncState = 'saving';
 		try {
 			this.saveNow();
 			const backup = createBackup(
@@ -2587,20 +3088,31 @@ class MistWalk {
 				this.state.settings
 			);
 			await uploadCloudBackup(backup);
-			await this.refreshCloudMeta();
+			this.cloudDirty = false;
+			this.cloudSyncFailures = 0;
+			this.state.cloud.lastSavedAt = Date.now();
+			this.lastSeenRemoteAt = this.state.cloud.lastSavedAt;
+			this.state.cloud.syncState = 'saved';
+			this.state.cloud.syncMessage = 'Synced to the cloud.';
 			this.state.cloud.message = 'Cloud backup uploaded.';
-			this.toast('Cloud backup saved to Supabase.', 'success', 4000);
+			if (!silent) this.toast('Cloud backup saved to Supabase.', 'success', 4000);
 		} catch (err) {
+			this.state.cloud.syncState = 'error';
+			this.state.cloud.syncMessage = errorMessage(err) || 'Cloud upload failed.';
 			this.state.cloud.message = errorMessage(err) || 'Cloud upload failed.';
-			this.toast(this.state.cloud.message, 'error', 6000);
+			if (!silent) this.toast(this.state.cloud.message, 'error', 6000);
 		} finally {
 			this.state.cloud.busy = false;
 		}
 	}
 
-	async restoreCloud() {
-		if (!this.state.cloud.user) {
-			this.toast('Sign in before restoring from the cloud.', 'warn', 3600);
+	async restoreCloud(ask = true) {
+		if (!this.canAutoSync()) {
+			this.toast('Sign in with an approved account to restore.', 'warn', 3600);
+			return;
+		}
+		if (this.cloudSyncInFlight) {
+			this.toast('A cloud sync is finishing. Try restoring again in a moment.', 'info', 3600);
 			return;
 		}
 		this.state.cloud.busy = true;
@@ -2614,13 +3126,23 @@ class MistWalk {
 				? new Date(remote.saved_at).toLocaleString()
 				: 'an unknown time';
 			if (
+				ask &&
 				!window.confirm(
 					`Restore the cloud backup from ${saved}? It will replace the live and simulator maps on this device.`
 				)
 			)
 				return;
+			this.cancelCloudSync();
+			this.cloudDirty = false;
 			const imported = importBackup(remote.data);
 			await this.applyImported(imported);
+			this.cancelCloudSync();
+			this.cloudDirty = false;
+			this.state.cloud.lastSavedAt = remote.saved_at || Date.now();
+			this.lastSeenRemoteAt = this.state.cloud.lastSavedAt;
+			this.state.cloud.syncState = 'saved';
+			this.state.cloud.syncMessage = 'Restored from the cloud.';
+			this.state.cloud.message = 'Cloud backup restored.';
 			this.toast('Cloud backup restored.', 'success', 4200);
 		} catch (err) {
 			this.state.cloud.message = errorMessage(err) || 'Cloud restore failed.';
@@ -2631,20 +3153,30 @@ class MistWalk {
 	}
 
 	async deleteCloudCopy() {
-		if (!this.state.cloud.user) {
-			this.toast('Sign in before deleting a cloud backup.', 'warn', 3600);
+		if (!this.canAutoSync()) {
+			this.toast('Sign in with an approved account first.', 'warn', 3600);
+			return;
+		}
+		if (this.cloudSyncInFlight) {
+			this.toast('A cloud sync is finishing. Try deleting again in a moment.', 'info', 3600);
 			return;
 		}
 		if (
 			!window.confirm(
-				'Delete the cloud copy for this account? The map on this device will not be touched.'
+				'Delete the cloud copy for this account? The map on this device will not be touched. Auto-sync will upload a new copy after your next save.'
 			)
 		)
 			return;
 		this.state.cloud.busy = true;
 		try {
 			await deleteCloudBackup();
+			this.cancelCloudSync();
+			this.cloudDirty = false;
+			this.cloudSyncFailures = 0;
 			this.state.cloud.lastSavedAt = 0;
+			this.lastSeenRemoteAt = 0;
+			this.state.cloud.syncState = 'idle';
+			this.state.cloud.syncMessage = 'No cloud copy is stored.';
 			this.state.cloud.message = 'Cloud backup deleted. This device is unchanged.';
 			this.toast('Cloud copy deleted.', 'success', 3600);
 		} catch (err) {
@@ -2652,6 +3184,60 @@ class MistWalk {
 			this.toast(this.state.cloud.message, 'error', 6000);
 		} finally {
 			this.state.cloud.busy = false;
+		}
+	}
+
+	async loadMembers(): Promise<void> {
+		if (!this.isAdmin()) return;
+		this.state.cloud.membersBusy = true;
+		try {
+			this.state.cloud.members = await fetchMembers();
+		} catch (err) {
+			this.toast(errorMessage(err) || 'Members could not be loaded.', 'error', 6000);
+		} finally {
+			this.state.cloud.membersBusy = false;
+		}
+	}
+
+	async decideMember(userId: string, status: MemberStatus): Promise<void> {
+		if (!this.isAdmin()) return;
+		this.state.cloud.membersBusy = true;
+		try {
+			await setMemberStatus(userId, status);
+			await this.loadMembers();
+			this.toast(status === 'approved' ? 'Explorer approved.' : 'Access updated.', 'success', 3200);
+		} catch (err) {
+			this.toast(errorMessage(err) || 'Access could not be updated.', 'error', 6000);
+		} finally {
+			this.state.cloud.membersBusy = false;
+		}
+	}
+
+	async makeInvite(): Promise<void> {
+		if (!this.isAdmin()) return;
+		this.state.cloud.inviteBusy = true;
+		try {
+			this.state.cloud.inviteCode = await createInviteCode(7);
+			this.toast('Invite code created. It expires in 7 days.', 'success', 4200);
+		} catch (err) {
+			this.toast(errorMessage(err) || 'The invite could not be created.', 'error', 6000);
+		} finally {
+			this.state.cloud.inviteBusy = false;
+		}
+	}
+
+	async copyInvite(): Promise<void> {
+		const code = this.state.cloud.inviteCode;
+		if (!code) return;
+		if (!navigator.clipboard?.writeText) {
+			this.toast(`Invite code: ${code}`, 'info', 8000);
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(code);
+			this.toast('Invite code copied.', 'success', 2600);
+		} catch {
+			this.toast(`Invite code: ${code}`, 'info', 8000);
 		}
 	}
 
