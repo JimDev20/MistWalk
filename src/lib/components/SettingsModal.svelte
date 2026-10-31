@@ -337,7 +337,7 @@
 								everything works without an account.
 							</p>
 							<p class="field-note">
-								Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to turn on
+								Set <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> to turn on
 								accounts, approval and cross-device sync.
 							</p>
 						</div>

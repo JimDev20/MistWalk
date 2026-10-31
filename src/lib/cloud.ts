@@ -8,8 +8,8 @@ import {
 } from '@supabase/supabase-js';
 import type { BackupFile, MemberRecord, MemberStatus } from './types.ts';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = import.meta.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.SUPABASE_ANON_KEY || '';
 
 export const cloudConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 

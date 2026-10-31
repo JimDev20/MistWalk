@@ -3,6 +3,7 @@ import adapter from '@sveltejs/adapter-vercel';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
+	envPrefix: ['VITE_', 'SUPABASE_'],
 	plugins: [
 		sveltekit({
 			compilerOptions: {

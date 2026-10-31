@@ -69,8 +69,8 @@ Only the owner sees the member panel. The schema prevents members from approving
 5. Copy the project URL and the **anon public** key into `.env`:
 
 ```sh
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
 ```
 
 6. Sign in once with the email that should own the map.
@@ -84,7 +84,7 @@ where email = 'you@example.com';
 
 8. Reload the app. The member panel and invite controls now appear in settings.
 
-The anon key is designed to be public in browser bundles. Row Level Security is what protects member rows and backups. Never put a Supabase service-role key in a `VITE_` variable.
+The anon key is designed to be public in browser bundles. Row Level Security is what protects member rows and backups. Never put a Supabase service-role key in a client-exposed variable.
 
 ### Email codes
 
@@ -117,7 +117,7 @@ The project uses `@sveltejs/adapter-vercel`.
 
 1. Push the repository to GitHub.
 2. Import it in Vercel.
-3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Project Settings > Environment Variables** if you want accounts and sync.
+3. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` under **Project Settings > Environment Variables** if you want accounts and sync.
 4. Deploy.
 
 Without the environment variables, the deployed app remains local-only and shows no gate.
