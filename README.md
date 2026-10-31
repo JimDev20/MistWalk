@@ -77,10 +77,10 @@ SUPABASE_ANON_KEY=your-anon-key
 7. Promote that account in the SQL Editor:
 
 ```sql
-update public.mistwalk_members
-set role = 'admin', status = 'approved', decided_at = now()
-where email = 'you@example.com';
+select public.mistwalk_promote_admin('you@example.com');
 ```
+
+The helper only succeeds after the owner has signed in once, because it matches an existing `auth.users` row. It is revoked from `public`, `anon`, and `authenticated`, so it cannot be called through the API.
 
 8. Reload the app. The member panel and invite controls now appear in settings.
 

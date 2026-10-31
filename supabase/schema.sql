@@ -1,9 +1,7 @@
 -- MistWalk Supabase schema
 -- Run this once in the Supabase SQL Editor, then promote yourself to admin:
 --
---   update public.mistwalk_members
---      set role = 'admin', status = 'approved', decided_at = now()
---    where email = 'you@example.com';
+--   select public.mistwalk_promote_admin('you@example.com');
 --
 -- New sign-ins are created as pending members and cannot read or write any
 -- backup until an admin approves them or they redeem an invite code.
@@ -128,6 +126,38 @@ $$;
 
 revoke all on function public.mistwalk_set_member_status(uuid, text) from public, anon;
 grant execute on function public.mistwalk_set_member_status(uuid, text) to authenticated;
+
+-- One-time owner bootstrap. Run this from the SQL Editor after the owner has
+-- signed in once. Client roles cannot execute it, so it is not reachable
+-- through the API.
+create or replace function public.mistwalk_promote_admin(owner_email text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if owner_email is null or position('@' in trim(owner_email)) = 0 then
+    raise exception 'Provide a valid email address.';
+  end if;
+
+  insert into public.mistwalk_members as m (user_id, email, status, role, decided_at)
+  select u.id, u.email, 'approved', 'admin', now()
+    from auth.users u
+   where lower(u.email) = lower(trim(owner_email))
+  on conflict (user_id) do update
+     set role = 'admin',
+         status = 'approved',
+         decided_at = now(),
+         email = coalesce(excluded.email, m.email);
+
+  if not found then
+    raise exception 'No account found for %. Sign in once with that email, then run this again.', owner_email;
+  end if;
+end;
+$$;
+
+revoke all on function public.mistwalk_promote_admin(text) from public, anon, authenticated;
 
 /* ------------------------------------------------------------------------- */
 /* Invites                                                                   */
