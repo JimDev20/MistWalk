@@ -1,0 +1,19 @@
+# Package Managers
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+bun.lock
+bun.lockb
+
+# Generated output
+/.svelte-kit/
+/build/
+/.vercel/
+/.output/
+/coverage/
+
+# Reference implementation
+/legacy/
+
+# Miscellaneous
+/static/

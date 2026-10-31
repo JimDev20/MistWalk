@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07101a">
+  <meta name="description" content="MistWalk is a private, free walking exploration simulator. The world starts hidden in mist; every 12-metre tile you walk clears forever.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MistWalk">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <link rel="stylesheet" href="assets/vendor/leaflet.css">
+  <link rel="stylesheet" href="assets/style.css">
+  <title>MistWalk: walk to uncover the world</title>
+</head>
+<body>
+  <div class="boot-screen" id="boot-screen" aria-hidden="true">
+    <div class="boot-glyph"><svg><use href="#i-logo"/></svg></div>
+    <div class="boot-word">MistWalk</div>
+    <div class="boot-sub">Lifting the mist</div>
+    <div class="boot-line"><span></span></div>
+  </div>
+
+  <svg class="svg-defs" aria-hidden="true" focusable="false">
+    <symbol id="i-logo" viewBox="0 0 32 32">
+      <path d="M16 1.6 19.4 12.6 30.4 16 19.4 19.4 16 30.4 12.6 19.4 1.6 16 12.6 12.6Z" fill="currentColor"/>
+      <circle cx="16" cy="16" r="3.4" fill="#061018"/>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="10.8" cy="10.8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path d="m15.6 15.6 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24">
+      <path d="M4 7h10M18 7h2M4 17h2M10 17h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="8" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+    </symbol>
+    <symbol id="i-help" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M9.7 9.4a2.5 2.5 0 1 1 3.7 2.2c-.9.5-1.4 1-1.4 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="12" cy="16.8" r="1" fill="currentColor"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-locate" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="12" cy="12" r="2.2" fill="currentColor"/>
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24">
+      <path d="M8.5 3.5h-5v5M15.5 20.5h5v-5M3.5 15.5v5h5M20.5 8.5v-5h-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5Z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5.5h3v13H8zM14 5.5h3v13h-3z" fill="currentColor"/></symbol>
+    <symbol id="i-walk" viewBox="0 0 24 24">
+      <circle cx="13" cy="4.2" r="2.1" fill="currentColor"/>
+      <path d="m10.5 8 3.2.9 2 2.5 2.6 1M12.8 9.2l-1.1 3.7-3 2.1-1.1 4.2M11.7 12.9l2.4 2.6 1 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-avatar" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="23" fill="#0b0b0b"/>
+      <circle cx="24" cy="17" r="7.4" fill="currentColor"/>
+      <path d="M11.5 41c.7-8.2 5.8-12.5 12.5-12.5S35.8 32.8 36.5 41Z" fill="currentColor"/>
+      <path d="M16.8 16.4c.5-4.9 3.2-7.5 7.2-7.5s6.7 2.6 7.2 7.5c-1.9-2.3-4.3-3.5-7.2-3.5s-5.3 1.2-7.2 3.5Z" fill="#0b0b0b" opacity=".55"/>
+    </symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24">
+      <path d="M12 3 5 6v5.4c0 4.2 2.8 7.8 7 9.6 4.2-1.8 7-5.4 7-9.6V6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="m9.2 12 2 2 3.7-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11m0 0 4-4m-4 4-4-4M4 18.5h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20.5v-11m0 0 4 4m-4-4-4 4M4 5.5h16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9 7V4.5h6V7m-8.5 0 .8 12.5h9.4L18.5 7M10 10.5v6M14 10.5v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.3 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z" fill="currentColor"/><path d="m18.5 15 .9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9Z" fill="currentColor" opacity=".65"/></symbol>
+  </svg>
+
+  <div class="app" id="app">
+    <main class="map-shell" id="map-shell">
+      <div class="map" id="map" aria-label="Fogged exploration map"></div>
+      <div class="map-vignette" aria-hidden="true"></div>
+      <div class="map-horizon" aria-hidden="true"></div>
+    </main>
+
+    <header class="topbar">
+      <button class="brand" id="brand-btn" type="button" aria-label="MistWalk home">
+        <span class="brand-mark"><svg><use href="#i-logo"/></svg></span>
+        <span class="brand-type">
+          <span class="brand-name">MistWalk</span>
+          <span class="brand-sub">Local exploration system</span>
+        </span>
+      </button>
+
+      <div class="topbar-status">
+        <div class="status-pill" id="status-pill" data-state="idle">
+          <span class="status-dot"></span>
+          <span class="status-label" id="status-text">Standby</span>
+          <span class="status-detail" id="status-detail"></span>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="icon-btn" id="search-btn" type="button" aria-label="Search a place" title="Search a place"><svg><use href="#i-search"/></svg></button>
+        <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" title="Settings"><svg><use href="#i-sliders"/></svg></button>
+        <button class="icon-btn" id="help-btn" type="button" aria-label="How it works" title="How it works"><svg><use href="#i-help"/></svg></button>
+      </div>
+    </header>
+
+    <aside class="hud panel" id="hud" aria-label="Exploration progress">
+      <div class="hud-head">
+        <div>
+          <h2 id="level-name">Mistwalker</h2>
+        </div>
+        <div class="hud-badge">
+          <span class="level-number" id="level-number">01</span>
+          <span class="hud-state" id="hud-state" data-state="idle"><i></i><span id="hud-state-text">Standby</span></span>
+        </div>
+      </div>
+      <p class="level-tag" id="level-tag">The map is still sleeping.</p>
+      <div class="level-track" aria-hidden="true"><span id="level-progress"></span></div>
+
+      <div class="stat-grid">
+        <div class="stat stat--wide">
+          <span class="stat-label">Revealed</span>
+          <strong id="stat-area">0 m²</strong>
+          <span class="stat-sub" id="stat-tiles">0 tiles</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Walked</span>
+          <strong id="stat-distance">0 m</strong>
+          <span class="stat-sub">all time</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Streak</span>
+          <strong id="stat-streak">0</strong>
+          <span class="stat-sub">days</span>
+        </div>
+      </div>
+
+      <div class="walk-card" id="walk-card">
+        <div class="walk-card-head">
+          <span class="walk-live"><i></i> This walk</span>
+          <span class="mono" id="walk-time">00:00</span>
+        </div>
+        <div class="walk-stats">
+          <div><span id="walk-distance">0 m</span><small>distance</small></div>
+          <div><span id="walk-speed">0.0</span><small id="walk-speed-unit">km/h</small></div>
+          <div><span id="walk-unlocks">0</span><small>new tiles</small></div>
+        </div>
+      </div>
+
+      <div class="hud-actions">
+        <button class="btn btn--ghost" id="follow-btn" type="button">
+          <svg><use href="#i-locate"/></svg><span>Recenter</span>
+        </button>
+        <button class="btn btn--dark" id="walk-toggle" type="button">
+          <svg><use href="#i-pause"/></svg><span>Pause</span>
+        </button>
+      </div>
+      <div class="hud-attribution" id="hud-attribution">© OpenStreetMap contributors</div>
+    </aside>
+
+    <div class="position-card panel" id="position-card">
+      <div class="compass" aria-hidden="true">
+        <span class="compass-n">N</span>
+        <span class="compass-needle" id="compass-needle"></span>
+        <span class="compass-ring"></span>
+      </div>
+      <div class="position-copy">
+        <span class="eyebrow">Position</span>
+        <div class="mono position-coords" id="coord-text">—</div>
+        <div class="position-meta">
+          <span class="position-provider" id="provider-text">OpenStreetMap Standard</span>
+          <a class="position-google" id="google-link" href="https://www.google.com/maps" target="_blank" rel="noopener" title="Open this location in Google Maps">Google Maps</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="map-controls" aria-label="Map controls">
+      <div class="control-stack">
+        <button class="map-btn" id="zoom-in" type="button" aria-label="Zoom in"><svg><use href="#i-plus"/></svg></button>
+        <button class="map-btn" id="zoom-out" type="button" aria-label="Zoom out"><svg><use href="#i-minus"/></svg></button>
+      </div>
+      <div class="control-stack">
+        <button class="map-btn map-btn--accent" id="locate-btn" type="button" aria-label="Go to my location"><svg><use href="#i-locate"/></svg></button>
+        <button class="map-btn" id="fit-btn" type="button" aria-label="Fit explored area"><svg><use href="#i-expand"/></svg></button>
+      </div>
+    </div>
+    <div class="map-attribution" id="map-attribution">© OpenStreetMap contributors</div>
+
+    <div class="sim-panel panel" id="sim-panel" hidden>
+      <div class="sim-copy">
+        <span class="sim-badge">Simulation</span>
+        <span id="sim-hint">Tap the map to walk there.</span>
+      </div>
+      <button class="sim-speed" id="sim-speed" type="button" title="Simulation speed">1×</button>
+      <button class="sim-btn" id="sim-place" type="button" title="Place walker at map center">Place</button>
+      <button class="sim-btn" id="sim-stop" type="button">Stop</button>
+      <button class="sim-exit" id="sim-exit" type="button" aria-label="Exit simulation"><svg><use href="#i-close"/></svg></button>
+    </div>
+
+    <div class="toast-stack" id="toasts" aria-live="polite"></div>
+    <div class="unlock-flash" id="unlock-flash" aria-hidden="true"></div>
+
+    <section class="onboarding" id="onboarding" aria-label="Welcome to MistWalk">
+      <div class="onboarding-inner">
+        <div class="onboarding-copy">
+          <h1>The world<br>is in mist.</h1>
+          <p class="onboarding-lede">Walk the real world. Every <strong>12-metre tile</strong> you cross lifts the fog. It stays clear for good.</p>
+          <p class="feature-row">Walking only. Private by design. Free to run.</p>
+          <div class="onboarding-actions">
+            <button class="btn btn--primary btn--large" id="start-gps" type="button">
+              <svg><use href="#i-locate"/></svg>
+              <span>Enable live GPS</span>
+            </button>
+            <button class="btn btn--ghost btn--large" id="start-demo" type="button">
+              <svg><use href="#i-play"/></svg>
+              <span>Try the simulator</span>
+            </button>
+          </div>
+          <p class="micro-note">No account. No upload. No API key required for the free map. <a href="#" id="onboarding-help">How it works</a></p>
+        </div>
+
+        <div class="portal-wrap" aria-hidden="true">
+          <div class="portal">
+            <div class="portal-map"></div>
+            <div class="portal-fog"></div>
+            <svg class="portal-trail" viewBox="0 0 400 400">
+              <path d="M112 330c16-62 44-78 78-106 31-26 31-58 10-86-18-24-10-53 21-68" fill="none" stroke="rgba(156,236,245,.86)" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="2 7"/>
+            </svg>
+            <div class="portal-cell c1"></div>
+            <div class="portal-cell c2"></div>
+            <div class="portal-cell c3"></div>
+            <div class="portal-cell c4"></div>
+            <div class="portal-pin">
+              <svg class="portal-avatar" viewBox="0 0 48 48" aria-hidden="true"><use href="#i-avatar"/></svg>
+              <span class="portal-arrow"></span>
+            </div>
+            <div class="portal-ring"></div>
+            <div class="portal-compass">N</div>
+          </div>
+          <div class="portal-caption">
+            <span class="eyebrow">Field note</span>
+            <p>“The map is not missing. It is waiting.”</p>
+          </div>
+        </div>
+      </div>
+      <div class="onboarding-footer">
+        <span>MistWalk / Build 1.0</span>
+        <span class="mono">12 m tiles, GPS verified, local save</span>
+      </div>
+    </section>
+
+    <div class="scrim" id="scrim" hidden></div>
+
+    <section class="modal" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+      <div class="modal-card">
+        <header class="modal-head">
+          <div><h2 id="settings-title">Field settings</h2></div>
+          <button class="icon-btn modal-close" type="button" data-close="settings-modal" aria-label="Close settings"><svg><use href="#i-close"/></svg></button>
+        </header>
+        <div class="modal-body">
+          <section class="settings-section">
+            <h3>Map source</h3>
+            <div class="segmented" id="provider-seg" role="tablist" aria-label="Map provider">
+              <button type="button" data-provider="osm" role="tab">Free / OpenStreetMap</button>
+              <button type="button" data-provider="google" role="tab">Google Maps</button>
+            </div>
+            <div class="field" id="osm-settings">
+              <label for="basemap-select">Basemap</label>
+              <div class="select-wrap">
+                <select id="basemap-select">
+                  <option value="osm">OpenStreetMap standard</option>
+                  <option value="osmfr">OSM France soft colour</option>
+                  <option value="cyclosm">CyclOSM cycle detail</option>
+                </select>
+                <svg><use href="#i-chevron"/></svg>
+              </div>
+              <p class="field-note">Free tiles from OpenStreetMap contributors. No account, no key, no billing.</p>
+            </div>
+            <div class="field" id="google-settings" hidden>
+              <label for="google-key">Google Maps API key</label>
+              <div class="input-row">
+                <input id="google-key" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="AIza…">
+                <button class="btn btn--primary" id="google-save" type="button">Connect</button>
+              </div>
+              <p class="field-note">Optional. Use a browser key restricted to this site. A <a href="https://mapsplatform.google.com/maps-demo-key/" target="_blank" rel="noopener">free demo key</a> needs no credit card; regular Google keys can bill above their free quota. The OpenStreetMap mode never costs anything.</p>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Exploration</h3>
+            <div class="switch-list">
+              <label class="switch-row"><span><strong>Metric units</strong><small>Metres and kilometres</small></span><input type="checkbox" id="units-toggle" checked><i></i></label>
+              <label class="switch-row"><span><strong>Survey grid</strong><small>Show the 12 m tile edges you revealed</small></span><input type="checkbox" id="grid-toggle" checked><i></i></label>
+              <label class="switch-row"><span><strong>Unlock sound</strong><small>A quiet chime when tiles appear</small></span><input type="checkbox" id="sound-toggle" checked><i></i></label>
+              <label class="switch-row"><span><strong>Haptics</strong><small>Short vibration on unlock, if supported</small></span><input type="checkbox" id="haptics-toggle" checked><i></i></label>
+              <label class="switch-row"><span><strong>Keep screen awake</strong><small>Wake lock while live tracking</small></span><input type="checkbox" id="wake-toggle" checked><i></i></label>
+              <label class="switch-row"><span><strong>Auto-start GPS</strong><small>Resume tracking when you open the app</small></span><input type="checkbox" id="autotrack-toggle" checked><i></i></label>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Profile &amp; data</h3>
+            <div class="segmented" id="profile-seg" role="tablist" aria-label="Profile">
+              <button type="button" data-profile="live" role="tab">Live map</button>
+              <button type="button" data-profile="demo" role="tab">Simulator</button>
+            </div>
+            <p class="field-note" id="profile-note">Live progress is unlocked only by real walking GPS.</p>
+            <div class="data-actions">
+              <button class="btn btn--ghost" id="export-btn" type="button"><svg><use href="#i-download"/></svg><span>Export backup</span></button>
+              <button class="btn btn--ghost" id="import-btn" type="button"><svg><use href="#i-upload"/></svg><span>Restore backup</span></button>
+              <input type="file" id="import-file" accept="application/json,.json" hidden>
+              <button class="btn btn--danger-ghost" id="reset-btn" type="button"><svg><use href="#i-trash"/></svg><span>Reset this profile</span></button>
+            </div>
+            <p class="storage-usage" id="storage-usage">Stored locally on this device.</p>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="modal" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+      <div class="modal-card modal-card--wide">
+        <header class="modal-head">
+          <div><h2 id="help-title">How MistWalk works</h2></div>
+          <button class="icon-btn modal-close" type="button" data-close="help-modal" aria-label="Close manual"><svg><use href="#i-close"/></svg></button>
+        </header>
+        <div class="modal-body help-body">
+          <article class="help-card">
+            <span class="help-num">01</span>
+            <h3>Walk to reveal</h3>
+            <p>Every point is snapped to a 12-metre tile. A tile unlocks only when a GPS fix inside it passes the walking gate. The fog lifts permanently; old tiles never return.</p>
+          </article>
+          <article class="help-card">
+            <span class="help-num">02</span>
+            <h3>Walking only</h3>
+            <p>The gate rejects fixes faster than about 10 km/h and locks out for 45 seconds when it detects a vehicle. The map only records what your feet earn.</p>
+          </article>
+          <article class="help-card">
+            <span class="help-num">03</span>
+            <h3>Private by construction</h3>
+            <p>No account, no server, no analytics. Your tiles, trail, and stats live in this browser's local storage with an IndexedDB mirror. Export a backup to move devices.</p>
+          </article>
+          <article class="help-card">
+            <span class="help-num">04</span>
+            <h3>Free map first</h3>
+            <p>OpenStreetMap tiles need no key, account, or billing. Google Maps is optional: paste a restricted browser key in settings. The free demo key needs no card, but Google's paid quotas can bill above the free allowance.</p>
+          </article>
+          <article class="help-card help-card--wide">
+            <span class="help-num">05</span>
+            <h3>Using it on a phone</h3>
+            <p>Browsers only give GPS to secure pages. On this computer, <code>http://localhost</code> is enough. For a phone, put this folder on any free static host with HTTPS, such as GitHub Pages, Netlify, or Cloudflare Pages, then open that link and install it to the home screen. No build step is needed.</p>
+          </article>
+          <article class="help-card help-card--wide help-card--quiet">
+            <div>
+              <h3>Emergency backup</h3>
+              <p>In Settings, choose Export backup to write one JSON file containing both the live and simulator profiles. Keep it somewhere safe; restoring replaces local progress.</p>
+            </div>
+            <button class="btn btn--primary" id="help-export" type="button"><svg><use href="#i-download"/></svg><span>Export now</span></button>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="modal" id="search-modal" role="dialog" aria-modal="true" aria-labelledby="search-title" hidden>
+      <div class="modal-card modal-card--search">
+        <header class="modal-head">
+          <div><h2 id="search-title">Find a place</h2></div>
+          <button class="icon-btn modal-close" type="button" data-close="search-modal" aria-label="Close search"><svg><use href="#i-close"/></svg></button>
+        </header>
+        <div class="modal-body">
+          <form class="search-form" id="search-form">
+            <svg><use href="#i-search"/></svg>
+            <input id="search-input" type="search" placeholder="City, street, landmark…" autocomplete="off" enterkeyhint="search">
+            <button class="btn btn--primary" type="submit">Search</button>
+          </form>
+          <p class="field-note search-note">Search moves the view only. It never unlocks tiles. Results © OpenStreetMap contributors.</p>
+          <div class="search-results" id="search-results">
+            <div class="search-empty">
+              <p>Search your neighbourhood, then walk it in the simulator.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="modal" id="gps-modal" role="dialog" aria-modal="true" aria-labelledby="gps-title" hidden>
+      <div class="modal-card modal-card--narrow">
+        <header class="modal-head">
+          <div><h2 id="gps-title">Location is blocked</h2></div>
+          <button class="icon-btn modal-close" type="button" data-close="gps-modal" aria-label="Close"><svg><use href="#i-close"/></svg></button>
+        </header>
+        <div class="modal-body">
+          <p class="gps-message" id="gps-message">Your browser did not give MistWalk a GPS fix. Allow location access for this page, then try again.</p>
+          <ol class="gps-steps">
+            <li>Open the site settings from the lock icon in the address bar.</li>
+            <li>Set <strong>Location</strong> to <strong>Allow</strong>.</li>
+            <li>Return here and press retry.</li>
+          </ol>
+          <div class="gps-actions">
+            <button class="btn btn--primary" id="gps-retry" type="button"><svg><use href="#i-locate"/></svg><span>Retry GPS</span></button>
+            <button class="btn btn--ghost" id="gps-sim" type="button"><svg><use href="#i-play"/></svg><span>Use simulator</span></button>
+          </div>
+          <p class="micro-note">Live GPS requires a secure page: <code>localhost</code> or HTTPS.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <noscript><div class="noscript">MistWalk needs JavaScript for the map and GPS.</div></noscript>
+  <script src="assets/vendor/leaflet.js"></script>
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>
