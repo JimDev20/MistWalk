@@ -1,10 +1,26 @@
 <svg class="svg-defs" aria-hidden="true" focusable="false">
 	<symbol id="i-logo" viewBox="0 0 32 32">
+		<rect x="5.8" y="21.4" width="3.9" height="3.9" rx="1" fill="currentColor" opacity="0.22"
+		></rect>
+		<rect x="8.4" y="25" width="2.5" height="2.5" rx="0.65" fill="currentColor" opacity="0.4"
+		></rect>
+		<circle cx="19.6" cy="6.9" r="1.9" fill="currentColor"></circle>
 		<path
-			d="M16 1.6 19.4 12.6 30.4 16 19.4 19.4 16 30.4 12.6 19.4 1.6 16 12.6 12.6Z"
-			fill="currentColor"
+			d="M19.1 9.6 17.5 15.6 20.9 20 21.5 25.25 23.25 25.25M17.5 15.6 14.5 20.4 11.6 24.75 9.9 24.75"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.9"
+			stroke-linecap="round"
+			stroke-linejoin="round"
 		></path>
-		<circle cx="16" cy="16" r="3.4" fill="#061018"></circle>
+		<path
+			d="M18.75 11.25 21.75 14.5 21.1 17.4M18.5 11.1 15.25 13.25 13.6 16"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.9"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		></path>
 	</symbol>
 	<symbol id="i-search" viewBox="0 0 24 24">
 		<circle cx="10.8" cy="10.8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.8"
