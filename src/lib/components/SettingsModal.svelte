@@ -337,8 +337,8 @@
 								everything works without an account.
 							</p>
 							<p class="field-note">
-								Set <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> to turn on
-								accounts, approval and cross-device sync.
+								Set <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> to turn on accounts,
+								approval and cross-device sync.
 							</p>
 						</div>
 					{:else if app.state.cloud.sample}
