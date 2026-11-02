@@ -65,8 +65,7 @@ export async function sendEmailCode(email: string): Promise<boolean> {
 	const { error } = await supabase.auth.signInWithOtp({
 		email,
 		options: {
-			shouldCreateUser: true,
-			emailRedirectTo: window.location.origin
+			shouldCreateUser: true
 		}
 	});
 	if (error) throw new Error(error.message);

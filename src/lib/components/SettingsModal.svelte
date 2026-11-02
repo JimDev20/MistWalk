@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { app } from '#lib/mistwalk.svelte.ts';
 	import MemberPanel from './MemberPanel.svelte';
 
@@ -255,13 +256,15 @@
 							aria-selected={app.state.profile === 'live'}
 							onclick={() => app.switchProfile('live')}>Live map</button
 						>
-						<button
-							class:is-active={app.state.profile === 'demo'}
-							type="button"
-							role="tab"
-							aria-selected={app.state.profile === 'demo'}
-							onclick={() => app.switchProfile('demo')}>Simulator</button
-						>
+						{#if !app.state.cloud.configured || app.state.cloud.status === 'approved'}
+							<button
+								class:is-active={app.state.profile === 'demo'}
+								type="button"
+								role="tab"
+								aria-selected={app.state.profile === 'demo'}
+								onclick={() => app.switchProfile('demo')}>Simulator</button
+							>
+						{/if}
 					</div>
 					<p class="field-note">Live progress is unlocked only by real walking GPS.</p>
 					<div class="data-actions">
@@ -408,6 +411,9 @@
 							</div>
 						</div>
 						{#if app.isAdmin()}
+							<div class="cloud-actions">
+								<a class="btn btn--ghost" href={resolve('/admin')}>Open admin portal</a>
+							</div>
 							<MemberPanel />
 						{/if}
 					{:else if app.state.cloud.user}
@@ -450,9 +456,6 @@
 								>
 							{/if}
 							<div class="cloud-actions">
-								<button class="btn btn--ghost" type="button" onclick={() => app.enterSample()}
-									>Try the sample simulator</button
-								>
 								<button class="btn btn--ghost" type="button" onclick={() => app.signOutCloud()}
 									>Sign out</button
 								>
@@ -510,9 +513,9 @@
 						{/if}
 						<p class="cloud-status">{app.state.cloud.message}</p>
 						<p class="field-note">
-							Sign in with a one-time email code, then wait for the owner to approve this account.
-							Until then you can try the sample simulator. Built-in Supabase email only reaches
-							project team addresses, so invited explorers need custom SMTP.
+							Sign in with the 6-digit code sent to your email; there is no link to click. The owner
+							must approve this account before the map or simulator unlocks. Built-in Supabase email
+							only reaches project team addresses, so invited explorers need custom SMTP.
 						</p>
 					{/if}
 				</section>

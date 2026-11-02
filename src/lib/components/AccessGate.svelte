@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { app } from '#lib/mistwalk.svelte.ts';
 
 	let email = $state('');
@@ -42,11 +43,11 @@
 					The owner has to approve <strong
 						>{app.state.cloud.member?.email || app.state.cloud.email}</strong
 					>
-					before this account can use the live map and cloud backup.
+					before this account can use the map, the simulator, or cloud backup.
 				</p>
 				<p class="access-message">{app.state.cloud.message}</p>
 				<form class="access-form" onsubmit={submitInvite}>
-					<label for="access-invite">Have an invite code?</label>
+					<label for="access-invite">Have an invite code? It still needs approval.</label>
 					<div class="access-row">
 						<input
 							id="access-invite"
@@ -67,9 +68,6 @@
 					<button class="btn btn--ghost" type="button" onclick={() => app.refreshMembership()}
 						>Check status</button
 					>
-					<button class="btn btn--ghost" type="button" onclick={() => app.enterSample()}
-						>Try the sample simulator</button
-					>
 					<button class="btn btn--ghost" type="button" onclick={() => app.signOutCloud()}
 						>Sign out</button
 					>
@@ -80,15 +78,13 @@
 				<p class="access-kicker">Access closed</p>
 				<h1 id="access-title">This account was not approved.</h1>
 				<p class="access-copy">
-					Ask the owner for an invite code, or try the sample simulator without saving progress.
+					Ask the owner for access. The map and simulator stay locked until this account is
+					approved.
 				</p>
 				<p class="access-message">{app.state.cloud.message}</p>
 				<div class="access-actions">
 					<button class="btn btn--ghost" type="button" onclick={() => app.refreshMembership()}
 						>Check status</button
-					>
-					<button class="btn btn--primary" type="button" onclick={() => app.enterSample()}
-						>Try the sample simulator</button
 					>
 					<button class="btn btn--ghost" type="button" onclick={() => app.signOutCloud()}
 						>Sign out</button
@@ -100,8 +96,8 @@
 				<p class="access-kicker">Invite-only map</p>
 				<h1 id="access-title">Sign in to request access.</h1>
 				<p class="access-copy">
-					MistWalk is private for approved explorers. Sign in with your email, wait for the owner,
-					or look around in the sample simulator.
+					MistWalk is private for approved explorers. Sign in with your email and wait for the owner
+					to approve this account. The map and simulator stay locked until then.
 				</p>
 
 				{#if app.state.cloud.status === 'error'}
@@ -109,9 +105,6 @@
 					<div class="access-actions">
 						<button class="btn btn--ghost" type="button" onclick={() => app.refreshMembership()}
 							>Check again</button
-						>
-						<button class="btn btn--ghost" type="button" onclick={() => app.enterSample()}
-							>Try the sample simulator</button
 						>
 						{#if app.state.cloud.user}
 							<button class="btn btn--ghost" type="button" onclick={() => app.signOutCloud()}
@@ -174,16 +167,14 @@
 					<p class="access-message">{app.state.cloud.message}</p>
 				{/if}
 				<p class="access-note">
-					The live map and cross-device sync stay locked until the owner approves this account.
-					Supabase's built-in email only reaches project team addresses, so invited explorers need
-					custom SMTP.
+					Sign-in sends a 6-digit code by email; there is no link to click. The map and simulator
+					stay locked until the owner approves this account. Supabase's built-in email only reaches
+					project team addresses, so invited explorers need custom SMTP.
 				</p>
-				<div class="access-actions">
-					<button class="btn btn--ghost" type="button" onclick={() => app.enterSample()}
-						>Try the sample simulator</button
-					>
-				</div>
 			</div>
 		{/if}
+		<p class="access-owner-link">
+			Owner? <a href={resolve('/admin')}>Open the admin portal</a>
+		</p>
 	</div>
 </div>

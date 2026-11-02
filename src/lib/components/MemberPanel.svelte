@@ -28,8 +28,8 @@
 		<button class="micro-link" type="button" onclick={() => app.loadMembers()}>Refresh</button>
 	</div>
 	<p class="field-note">
-		Only the owner sees this panel. Approve people you trust; everyone else can use the sample
-		simulator.
+		Only the owner sees this panel. Approve people you trust; everyone else stays locked out of the
+		map and simulator.
 	</p>
 
 	{#if app.state.cloud.membersBusy}
@@ -126,7 +126,10 @@
 
 	<section class="member-group">
 		<h4>Invite codes</h4>
-		<p class="field-note">An invite skips the approval queue. Codes expire after 7 days.</p>
+		<p class="field-note">
+			Invite codes only mark a request as invited. The owner still has to approve it. Codes expire
+			after 7 days.
+		</p>
 		<div class="invite-row">
 			<button
 				class="btn btn--small btn--ghost"

@@ -1912,6 +1912,10 @@ class MistWalk {
 
 	async switchProfile(next: string): Promise<void> {
 		if (next !== 'live' && next !== 'demo') return;
+		if (cloudConfigured && this.state.cloud.status !== 'approved') {
+			this.noteAccessRequired();
+			return;
+		}
 		if (next === 'live' && (this.state.cloud.sample || this.liveAccessBlocked())) {
 			this.noteAccessRequired();
 			return;
@@ -2636,7 +2640,11 @@ class MistWalk {
 	}
 
 	noteAccessRequired(): void {
-		this.toast('Sign in and get approved to use the live map.', 'warn', 4200);
+		this.toast(
+			'The owner must approve this account before the map or simulator unlocks.',
+			'warn',
+			5200
+		);
 	}
 
 	async initCloud() {
@@ -2671,8 +2679,7 @@ class MistWalk {
 		} catch (err) {
 			this.state.cloud.status = 'error';
 			this.state.cloud.message =
-				errorMessage(err) ||
-				'The cloud session could not be checked. You can still try the sample.';
+				errorMessage(err) || 'The cloud session could not be checked. Try reloading the page.';
 		}
 	}
 
@@ -2841,7 +2848,7 @@ class MistWalk {
 			await sendEmailCode(value);
 			this.state.cloud.step = 'code';
 			this.state.cloud.message =
-				'Code sent. Check your email and type the code here. On a shared browser, sign out when done.';
+				'Code sent. Enter the 6-digit code from the email here. There is no link to click.';
 			this.toast('Check your email for the 6-digit MistWalk code.', 'success', 5200);
 		} catch (err) {
 			this.state.cloud.message = errorMessage(err) || 'The sign-in code could not be sent.';
@@ -2923,7 +2930,9 @@ class MistWalk {
 		try {
 			await redeemInviteCode(value);
 			this.state.cloud.inviteCode = '';
-			this.toast('Invite accepted. Loading the map…', 'success', 4200);
+			this.state.cloud.message =
+				'Invite accepted. The owner still has to approve this account before the map or simulator unlocks.';
+			this.toast('Invite accepted. Waiting for owner approval.', 'success', 5200);
 			await this.refreshMembership();
 		} catch (err) {
 			this.state.cloud.message = errorMessage(err) || 'That invite could not be redeemed.';
@@ -2936,6 +2945,11 @@ class MistWalk {
 	async enterSample(): Promise<void> {
 		if (this.state.cloud.status === 'approved') {
 			await this.switchProfile('live');
+			return;
+		}
+		if (cloudConfigured) {
+			this.state.cloud.message = 'The simulator is locked until the owner approves this account.';
+			this.noteAccessRequired();
 			return;
 		}
 		if (this.state.cloud.sample) return;

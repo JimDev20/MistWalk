@@ -4,7 +4,8 @@
 --   select public.mistwalk_promote_admin('you@example.com');
 --
 -- New sign-ins are created as pending members and cannot read or write any
--- backup until an admin approves them or they redeem an invite code.
+-- backup until an admin approves them. Invite codes only record that a member
+-- was invited; they never grant access on their own.
 
 /* ------------------------------------------------------------------------- */
 /* Members                                                                   */
@@ -220,6 +221,15 @@ begin
     raise exception 'Sign in before redeeming an invite.';
   end if;
 
+  if exists (
+    select 1
+      from public.mistwalk_members
+     where user_id = auth.uid()
+       and status = 'approved'
+  ) then
+    raise exception 'This account already has access.';
+  end if;
+
   select *
     into found_invite
     from public.mistwalk_invites
@@ -240,14 +250,16 @@ begin
      set used_by = auth.uid(), used_at = now()
    where code = found_invite.code;
 
+  -- Redeeming an invite only marks the request as invited. The owner still
+  -- has to approve it from the owner console.
   insert into public.mistwalk_members (user_id, email, status, decided_at, decided_by)
-  values (auth.uid(), null, 'approved', now(), found_invite.created_by)
+  values (auth.uid(), null, 'pending', null, null)
   on conflict (user_id) do update
-    set status = 'approved',
-        decided_at = now(),
-        decided_by = found_invite.created_by;
+    set status = 'pending',
+        decided_at = null,
+        decided_by = null;
 
-  return 'approved';
+  return 'pending';
 end;
 $$;
 

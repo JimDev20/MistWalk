@@ -1,4 +1,4 @@
-const VERSION = 'mistwalk-v2.0.0';
+const VERSION = 'mistwalk-v2.1.0';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -36,7 +36,7 @@ async function networkFirstNavigation(request) {
   const cache = await caches.open(VERSION);
   try {
     const response = await fetch(request);
-    if (response.ok) await cache.put('/', response.clone());
+    if (response.ok) await cache.put(request, response.clone());
     return response;
   } catch {
     return (await cache.match(request)) || (await cache.match('/')) || Response.error();
