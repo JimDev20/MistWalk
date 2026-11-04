@@ -948,4 +948,107 @@
 			flex: 1;
 		}
 	}
+
+	@media (max-width: 640px) {
+		.admin-page {
+			padding: calc(14px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+				calc(60px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+		}
+
+		.admin-topbar {
+			flex-wrap: wrap;
+			gap: 10px;
+		}
+
+		.admin-top-actions {
+			width: 100%;
+		}
+
+		.admin-top-actions .btn {
+			min-height: 44px;
+			flex: 1 1 auto;
+		}
+
+		.admin-brand strong {
+			font-size: 15px;
+			letter-spacing: 0.14em;
+		}
+
+		.admin-main {
+			padding-top: 20px;
+		}
+
+		.admin-card {
+			padding: 18px 14px;
+		}
+
+		.admin-card h1 {
+			font-size: clamp(26px, 8vw, 34px);
+			line-height: 1.05;
+		}
+
+		.admin-toolbar {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 10px;
+		}
+
+		.admin-toolbar .segmented {
+			width: 100%;
+		}
+
+		.admin-toolbar .segmented button {
+			min-height: 44px;
+			flex: 1;
+		}
+
+		.admin-invites {
+			gap: 12px;
+		}
+
+		.admin-invites > div:first-child {
+			flex-basis: 100%;
+		}
+
+		.admin-invite-actions {
+			width: 100%;
+		}
+
+		.admin-invite-actions .btn {
+			min-height: 44px;
+			flex: 1 1 140px;
+		}
+
+		.admin-input-row input {
+			min-height: 48px;
+			font-size: 16px;
+		}
+
+		.admin-input-row .btn {
+			min-height: 46px;
+		}
+
+		.admin-member-main {
+			gap: 10px;
+		}
+
+		.admin-member-actions .btn {
+			min-height: 44px;
+		}
+	}
+
+	@media (max-width: 380px) {
+		.admin-page {
+			padding-right: calc(10px + env(safe-area-inset-right));
+			padding-left: calc(10px + env(safe-area-inset-left));
+		}
+
+		.admin-brand strong {
+			font-size: 14px;
+		}
+
+		.admin-card {
+			padding: 16px 12px;
+		}
+	}
 </style>
