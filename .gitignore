@@ -50,6 +50,9 @@ service-account*.json
 # Supabase CLI
 supabase/.temp/
 
+# Local owner allowlist (contains a personal email)
+supabase/*.local.sql
+
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*

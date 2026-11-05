@@ -13,7 +13,7 @@ This repository is the SvelteKit rebuild of the original static PWA. The old app
 - **Vercel** for HTTPS hosting and the serverless adapter.
 - **Vitest** for pure core tests.
 
-The app works fully offline-first with only map tiles needing a network connection. Without Supabase environment variables it stays local-only and needs no account. When Supabase is configured, the deployment becomes approval-only: the owner must approve an account before the map, simulator, or cloud sync unlocks.
+The app works fully offline-first with only map tiles needing a network connection. Without Supabase environment variables it stays local-only and needs no account. When Supabase is configured, the deployment becomes approval-only: the owner must approve an account before the map, simulator, or cloud sync unlocks. Emails on the server-side owner allowlist are approved automatically as admins.
 
 ## Features
 
@@ -51,7 +51,7 @@ To run without accounts, leave the Supabase variables empty. Local profiles, set
 When Supabase is configured:
 
 1. A visitor signs in with a 6-digit email code.
-2. A trigger creates a `pending` row in `mistwalk_members`.
+2. A trigger creates a row in `mistwalk_members`. Addresses in `mistwalk_owner_emails` are approved admins; everyone else starts as pending.
 3. Pending and rejected accounts cannot use the map or simulator. They only see the access gate.
 4. The owner approves or rejects the account from the `/admin` owner console.
 5. Approved accounts unlock the map, simulator, and automatic cloud sync.
@@ -64,17 +64,33 @@ Only the owner can open the owner console. The schema prevents members from appr
 
 1. Create a free project at [supabase.com](https://supabase.com).
 2. Open **SQL Editor** and run [`supabase/schema.sql`](supabase/schema.sql).
-3. In **Authentication > Providers > Email**, keep email sign-ups enabled so explorers can create an account. Leave the email OTP length at 6 digits.
-4. In **Authentication > URL Configuration**, set the site URL to your deployment. The code-only template does not use redirect links, but Supabase still uses this for auth emails.
-5. Copy the project URL and the **anon public** key into `.env`:
+3. Run [`supabase/auto-approve.sql`](supabase/auto-approve.sql). It creates the server-side owner allowlist and replaces the signup trigger.
+4. Add the owner email in the SQL Editor. Keep this statement out of the repository:
+
+```sql
+insert into public.mistwalk_owner_emails (email)
+values ('you@example.com')
+on conflict (email) do nothing;
+
+select public.mistwalk_sync_owner_emails();
+```
+
+Allowlisted accounts become approved admins on their first sign-in. Every other account stays pending.
+
+5. In **Authentication > Providers > Email**, keep email sign-ups enabled so explorers can create an account. Leave the email OTP length at 6 digits.
+6. In **Authentication > URL Configuration**, set the site URL to your deployment. The code-only template does not use redirect links, but Supabase still uses this for auth emails.
+7. Copy the project URL and the **anon public** key into `.env`:
 
 ```sh
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 ```
 
-6. Sign in once with the email that should own the map.
-7. Promote that account in the SQL Editor:
+Keep `.env` local; it is gitignored. Use the Vercel dashboard for production values.
+
+8. Sign in with the owner email. It is approved automatically, and the owner console is available at `/admin`; a shortcut also appears in **Settings > Account and sync**.
+
+If you skipped the allowlist, the original one-time bootstrap still works after signing in once:
 
 ```sql
 select public.mistwalk_promote_admin('you@example.com');
@@ -82,13 +98,11 @@ select public.mistwalk_promote_admin('you@example.com');
 
 The helper only succeeds after the owner has signed in once, because it matches an existing `auth.users` row. It is revoked from `public`, `anon`, and `authenticated`, so it cannot be called through the API.
 
-8. Reload the app. The owner console is available at `/admin`; a shortcut also appears in **Settings > Account and sync**.
-
 The anon key is designed to be public in browser bundles. Row Level Security is what protects member rows and backups. Never put a Supabase service-role key in a client-exposed variable.
 
 ### Email codes
 
-MistWalk uses a one-time code instead of a magic link, so sign-in stays in the current browser or installed PWA.
+MistWalk uses a one-time code instead of a magic link, so sign-in stays in the current browser or installed PWA. Supabase's default template sends `{{ .ConfirmationURL }}`, which opens the **Site URL** (your deployment, such as Vercel) and only authenticates the browser. It never approves an account; approval is the `mistwalk_members.status` value. Paste the code-only template below.
 
 1. Open **Authentication > Emails > Magic Link** in Supabase.
 2. Replace the template with [`supabase/email-templates/magic-link.html`](supabase/email-templates/magic-link.html). It shows `{{ .Token }}` and contains no confirmation link.
@@ -132,6 +146,10 @@ The service worker is served from `/sw.js` with revalidation headers via `vercel
 - Signing out stops cloud access but does not erase local maps from that browser. On a shared device, use **Reset profile** or **Wipe local data** before handing it over.
 - Losing access to the owner email means losing the ability to manage the deployment. Keep the Supabase project credentials safe.
 - The code is public under the MIT license. That does not expose your Supabase project data as long as RLS stays enabled and the service-role key stays server-side.
+- `.env` is gitignored and must stay local. Production values belong in Vercel's environment settings. Never commit keys, owner emails, or build output such as `.vercel/` or `.svelte-kit/`.
+- The owner allowlist lives in `mistwalk_owner_emails`, which is server-only (RLS enabled, no client grants). Add addresses through the SQL Editor or an ignored `supabase/*.local.sql` file, never in tracked SQL.
+- If a credential is ever exposed, rotate it in Supabase and Vercel before pushing, and scrub the commit from history.
+- Before pushing, review `git status --short` and `git diff --cached`. Enable GitHub **Secret scanning** and **Push protection** so credential patterns are blocked at the remote.
 
 ## Free-tier notes
 
@@ -159,7 +177,7 @@ npm run format    # write formatting fixes
 
 - **Live profile**: geolocation fixes pass through `WalkGate` in `src/lib/core.ts`. Tiles unlock only at walking pace; vehicle-speed fixes pause unlocking for 45 seconds and move the anchor so a car route never becomes a walked corridor.
 - **Simulator profile**: a virtual walker moves at real walking speed while the UI can accelerate time. The same gate and grid logic applies.
-- **Approval gate**: pending, rejected, and signed-out accounts cannot open the map or simulator. The separate `/admin` owner console renders only for an approved admin account.
+- **Approval gate**: pending, rejected, and signed-out accounts cannot open the map or simulator. Allowlisted owner emails are auto-approved admins; everyone else waits for approval. The separate `/admin` owner console renders only for an approved admin account.
 - **Persistence**: profiles and settings are written to `localStorage` and mirrored to IndexedDB.
 - **Accounts**: `src/lib/cloud.ts` handles OTP sign-in, membership, invites, and backup rows. `src/lib/mistwalk.svelte.ts` owns the gate, sync timer, and conflict prompt.
 - **Map**: OpenStreetMap is default and needs no key. Google Maps is optional via a browser key stored locally.
@@ -190,6 +208,7 @@ src/
     admin/+page.svelte        Separate owner console
 static/                       Manifest, icons, font, service worker
 supabase/schema.sql           Members, invites, backups, RPCs, and RLS policies
+supabase/auto-approve.sql     Owner allowlist and signup auto-approval trigger
 supabase/email-templates/     Code-only Supabase email template
 legacy/                       Original vanilla app, tests, and README
 ```
