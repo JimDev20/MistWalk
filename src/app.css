@@ -4332,26 +4332,6 @@ html[data-motion='reduce'] *::after {
 	line-height: 1.6;
 }
 
-.access-owner-link {
-	margin: 18px 0 0;
-	padding-top: 14px;
-	border-top: 1px solid var(--line);
-	color: var(--muted-2);
-	font-family: var(--mono);
-	font-size: 9px;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-}
-
-.access-owner-link a {
-	color: var(--accent);
-	text-decoration: none;
-}
-
-.access-owner-link a:hover {
-	text-decoration: underline;
-}
-
 .sample-banner {
 	position: fixed;
 	z-index: 40;
@@ -5154,10 +5134,6 @@ textarea {
 	.access-actions .btn {
 		min-height: 46px;
 		flex: 1 1 160px;
-	}
-
-	.access-owner-link {
-		overflow-wrap: anywhere;
 	}
 
 	.toast {

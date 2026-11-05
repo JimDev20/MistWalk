@@ -412,7 +412,7 @@
 						</div>
 						{#if app.isAdmin()}
 							<div class="cloud-actions">
-								<a class="btn btn--ghost" href={resolve('/admin')}>Open admin portal</a>
+								<a class="btn btn--ghost" href={resolve('/admin')}>Open owner console</a>
 							</div>
 							<MemberPanel />
 						{/if}

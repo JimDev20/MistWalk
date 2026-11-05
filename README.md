@@ -19,7 +19,7 @@ The app works fully offline-first with only map tiles needing a network connecti
 
 - **Live and simulator profiles** share the same walking gate, fog grid, and permanent tile unlocks.
 - **Approval gate** for private deployments. Every new account waits for the owner, including invite-code holders.
-- **Separate owner console** at `/admin` for approving, revoking, and rejecting accounts.
+- **Hidden owner console** at `/admin`, reachable only from an approved admin session; there is no public admin link.
 - **Cross-device sync** for approved accounts, with automatic upload after saves and a restore prompt when another device is newer.
 - **Journey record** with levels, streaks, visit heat, notes, one combined history record per day, and route replay.
 - **Achievements** for exploration, distance, streaks, repeat visits, and notes.
@@ -53,12 +53,12 @@ When Supabase is configured:
 1. A visitor signs in with a 6-digit email code.
 2. A trigger creates a row in `mistwalk_members`. Addresses in `mistwalk_owner_emails` are approved admins; everyone else starts as pending.
 3. Pending and rejected accounts cannot use the map or simulator. They only see the access gate.
-4. The owner approves or rejects the account from the `/admin` owner console.
+4. The owner approves or rejects the account from the hidden `/admin` owner console, which only an approved admin session can open.
 5. Approved accounts unlock the map, simulator, and automatic cloud sync.
 6. The owner can generate an invite code. Redeeming it only marks the request as invited; the owner still has to approve the account.
 7. Revoking access locks that account out of backups on its next membership check.
 
-Only the owner can open the owner console. The schema prevents members from approving themselves or changing their own role.
+Sign-in happens only in the main MistWalk portal. The owner console has no public link and no separate login; an approved admin opens it from **Settings > Account and sync**. The schema prevents members from approving themselves or changing their own role.
 
 ## Supabase setup
 
@@ -88,7 +88,7 @@ SUPABASE_ANON_KEY=your-anon-key
 
 Keep `.env` local; it is gitignored. Use the Vercel dashboard for production values.
 
-8. Sign in with the owner email. It is approved automatically, and the owner console is available at `/admin`; a shortcut also appears in **Settings > Account and sync**.
+8. Sign in with the owner email through the main MistWalk portal. It is approved automatically; the hidden owner console is reachable from **Settings > Account and sync**.
 
 If you skipped the allowlist, the original one-time bootstrap still works after signing in once:
 
@@ -141,7 +141,7 @@ The service worker is served from `/sw.js` with revalidation headers via `vercel
 ## Security and privacy limits
 
 - The app is a static, client-rendered shell (`ssr = false`, `prerender = true`). Client-side gates can be bypassed by modifying a local copy of the code.
-- The real security boundary is Supabase RLS: pending, rejected, and signed-out users cannot read or write backup rows. The client-side owner console only works for an account with `role = 'admin'` and `status = 'approved'`; RLS and the admin-only RPC enforce the same rule.
+- The real security boundary is Supabase RLS: pending, rejected, and signed-out users cannot read or write backup rows. The client-side owner console only works for an account with `role = 'admin'` and `status = 'approved'`; the route is unlinked and redirects signed-out and non-admin sessions to the main portal. RLS and the admin-only RPC enforce the same rule.
 - Member emails and statuses are visible to the owner. Approved members can read their own membership row and their own backup.
 - Signing out stops cloud access but does not erase local maps from that browser. On a shared device, use **Reset profile** or **Wipe local data** before handing it over.
 - Losing access to the owner email means losing the ability to manage the deployment. Keep the Supabase project credentials safe.
@@ -177,7 +177,7 @@ npm run format    # write formatting fixes
 
 - **Live profile**: geolocation fixes pass through `WalkGate` in `src/lib/core.ts`. Tiles unlock only at walking pace; vehicle-speed fixes pause unlocking for 45 seconds and move the anchor so a car route never becomes a walked corridor.
 - **Simulator profile**: a virtual walker moves at real walking speed while the UI can accelerate time. The same gate and grid logic applies.
-- **Approval gate**: pending, rejected, and signed-out accounts cannot open the map or simulator. Allowlisted owner emails are auto-approved admins; everyone else waits for approval. The separate `/admin` owner console renders only for an approved admin account.
+- **Approval gate**: pending, rejected, and signed-out accounts cannot open the map or simulator. Allowlisted owner emails are auto-approved admins; everyone else waits for approval. The hidden `/admin` owner console redirects signed-out and non-admin sessions to the single login portal and renders only for an approved admin account.
 - **Persistence**: profiles and settings are written to `localStorage` and mirrored to IndexedDB.
 - **Accounts**: `src/lib/cloud.ts` handles OTP sign-in, membership, invites, and backup rows. `src/lib/mistwalk.svelte.ts` owns the gate, sync timer, and conflict prompt.
 - **Map**: OpenStreetMap is default and needs no key. Google Maps is optional via a browser key stored locally.
@@ -205,7 +205,7 @@ src/
     +layout.ts                Client-only prerendered shell
     +layout.svelte            CSS imports
     +page.svelte              App entry
-    admin/+page.svelte        Separate owner console
+    admin/+page.svelte        Hidden owner console (approved admin session only)
 static/                       Manifest, icons, font, service worker
 supabase/schema.sql           Members, invites, backups, RPCs, and RLS policies
 supabase/auto-approve.sql     Owner allowlist and signup auto-approval trigger

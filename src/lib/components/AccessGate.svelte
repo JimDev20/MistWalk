@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { app } from '#lib/mistwalk.svelte.ts';
 
 	let email = $state('');
@@ -168,13 +167,9 @@
 				{/if}
 				<p class="access-note">
 					Sign-in sends a 6-digit code by email; there is no link to click. The map and simulator
-					stay locked until the owner approves this account. Supabase's built-in email only reaches
-					project team addresses, so invited explorers need custom SMTP.
+					stay locked until the owner approves this account.
 				</p>
 			</div>
 		{/if}
-		<p class="access-owner-link">
-			Owner? <a href={resolve('/admin')}>Open the admin portal</a>
-		</p>
 	</div>
 </div>

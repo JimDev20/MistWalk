@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import type { MemberRecord, MemberStatus } from '#lib/types.ts';
@@ -9,18 +10,13 @@
 		fetchMembers,
 		fetchMembership,
 		getCloudUser,
-		sendEmailCode,
-		setMemberStatus,
-		verifyEmailCode
+		setMemberStatus
 	} from '#lib/cloud.ts';
 
-	type Phase =
-		'loading' | 'unconfigured' | 'signed-out' | 'code' | 'checking' | 'admin' | 'denied' | 'error';
+	type Phase = 'loading' | 'unconfigured' | 'checking' | 'admin' | 'denied' | 'error';
 
 	let phase = $state<Phase>('loading');
 	let email = $state('');
-	let code = $state('');
-	let busy = $state(false);
 	let message = $state('');
 	let me = $state<MemberRecord | null>(null);
 	let members = $state<MemberRecord[]>([]);
@@ -57,7 +53,7 @@
 		try {
 			const user = await getCloudUser();
 			if (!user) {
-				phase = 'signed-out';
+				await goto(resolve('/'));
 				return;
 			}
 			await checkAdmin(user.email || '');
@@ -74,15 +70,8 @@
 			const row = await fetchMembership();
 			me = row;
 			email = userEmail || row?.email || '';
-			if (!row) {
-				phase = 'denied';
-				message =
-					'This account has no membership row. Install or re-run supabase/schema.sql, then sign in again.';
-				return;
-			}
-			if (row.role !== 'admin') {
-				phase = 'denied';
-				message = 'This account is not an owner. Ask the owner to promote it.';
+			if (!row || row.role !== 'admin') {
+				await goto(resolve('/'));
 				return;
 			}
 			if (row.status !== 'approved') {
@@ -96,50 +85,6 @@
 		} catch (err) {
 			phase = 'error';
 			message = errorText(err);
-		}
-	}
-
-	async function requestCode(): Promise<void> {
-		const value = email.trim();
-		if (!value || !value.includes('@')) {
-			message = 'Enter a valid email address.';
-			return;
-		}
-		busy = true;
-		message = '';
-		try {
-			await sendEmailCode(value);
-			phase = 'code';
-			message = 'Code sent. Enter the 6-digit code from the email; there is no link to click.';
-		} catch (err) {
-			message = errorText(err);
-		} finally {
-			busy = false;
-		}
-	}
-
-	async function sendCode(event: SubmitEvent): Promise<void> {
-		event.preventDefault();
-		await requestCode();
-	}
-
-	async function submitCode(event: SubmitEvent): Promise<void> {
-		event.preventDefault();
-		const token = code.replace(/\s+/g, '');
-		if (token.length < 6) {
-			message = 'Enter the 6-digit code from your email.';
-			return;
-		}
-		busy = true;
-		message = '';
-		try {
-			await verifyEmailCode(email, token);
-			code = '';
-			await checkAdmin(email);
-		} catch (err) {
-			message = errorText(err);
-		} finally {
-			busy = false;
 		}
 	}
 
@@ -211,9 +156,7 @@
 		stopRefresh();
 		me = null;
 		members = [];
-		code = '';
-		phase = 'signed-out';
-		message = 'Signed out.';
+		await goto(resolve('/'));
 	}
 
 	function startRefresh(): void {
@@ -226,12 +169,6 @@
 	function stopRefresh(): void {
 		if (refreshTimer) clearInterval(refreshTimer);
 		refreshTimer = null;
-	}
-
-	function useAnotherEmail(): void {
-		phase = 'signed-out';
-		code = '';
-		message = '';
 	}
 
 	function filterLabel(count: number): string {
@@ -283,72 +220,10 @@
 				</p>
 				<a class="btn btn--primary admin-link-button" href={resolve('/')}>Back to MistWalk</a>
 			</section>
-		{:else if phase === 'signed-out' || phase === 'code'}
-			<section class="admin-card admin-card--narrow">
-				<p class="admin-kicker">Owner sign-in</p>
-				<h1>Approve explorers.</h1>
-				<p class="admin-copy">
-					Sign in with the owner email. Supabase sends a 6-digit code; enter it here. There is no
-					link to click.
-				</p>
-
-				{#if phase === 'signed-out'}
-					<form class="admin-form" onsubmit={sendCode}>
-						<label for="admin-email">Owner email</label>
-						<div class="admin-input-row">
-							<input
-								id="admin-email"
-								name="email"
-								type="email"
-								autocomplete="email"
-								placeholder="you@example.com"
-								bind:value={email}
-								required
-							/>
-							<button class="btn btn--primary" type="submit" disabled={busy}
-								>{busy ? 'Sending…' : 'Send code'}</button
-							>
-						</div>
-					</form>
-				{:else}
-					<form class="admin-form" onsubmit={submitCode}>
-						<label for="admin-code">Code sent to {email}</label>
-						<div class="admin-input-row">
-							<input
-								id="admin-code"
-								name="code"
-								type="text"
-								inputmode="numeric"
-								autocomplete="one-time-code"
-								autocapitalize="off"
-								spellcheck="false"
-								placeholder="123456"
-								bind:value={code}
-								required
-							/>
-							<button class="btn btn--primary" type="submit" disabled={busy}
-								>{busy ? 'Checking…' : 'Sign in'}</button
-							>
-						</div>
-					</form>
-					<div class="admin-inline-actions">
-						<button class="micro-link" type="button" disabled={busy} onclick={requestCode}>
-							Resend code</button
-						>
-						<button class="micro-link" type="button" onclick={useAnotherEmail}
-							>Use another email</button
-						>
-					</div>
-				{/if}
-
-				{#if message}
-					<p class="admin-message" aria-live="polite">{message}</p>
-				{/if}
-			</section>
 		{:else if phase === 'denied'}
 			<section class="admin-card admin-card--narrow">
 				<p class="admin-kicker">Owner console</p>
-				<h1>Not an owner account.</h1>
+				<h1>Owner access paused.</h1>
 				<p class="admin-copy">{message}</p>
 				<p class="admin-note">
 					Promote the owner once from the Supabase SQL editor:
@@ -660,47 +535,6 @@
 		font-size: 0.94em;
 	}
 
-	.admin-form {
-		margin-top: 22px;
-	}
-
-	.admin-form label {
-		display: block;
-		margin-bottom: 7px;
-		color: var(--ink-2);
-		font-size: 11px;
-		letter-spacing: 0.04em;
-	}
-
-	.admin-input-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-	}
-
-	.admin-input-row input {
-		flex: 1 1 210px;
-		min-width: 0;
-		height: 44px;
-		padding: 0 13px;
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		background: var(--bg-2);
-		color: var(--ink);
-		font-size: 14px;
-		outline: none;
-	}
-
-	.admin-input-row input:focus {
-		border-color: var(--accent);
-		box-shadow: 0 0 0 2px rgba(156, 236, 245, 0.12);
-	}
-
-	.admin-input-row .btn {
-		height: 44px;
-		flex: 0 0 auto;
-	}
-
 	.admin-inline-actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -927,14 +761,6 @@
 			grid-template-columns: 1fr;
 		}
 
-		.admin-input-row {
-			flex-direction: column;
-		}
-
-		.admin-input-row .btn {
-			width: 100%;
-		}
-
 		.admin-member-main {
 			align-items: flex-start;
 			flex-direction: column;
@@ -1017,15 +843,6 @@
 		.admin-invite-actions .btn {
 			min-height: 44px;
 			flex: 1 1 140px;
-		}
-
-		.admin-input-row input {
-			min-height: 48px;
-			font-size: 16px;
-		}
-
-		.admin-input-row .btn {
-			min-height: 46px;
 		}
 
 		.admin-member-main {
