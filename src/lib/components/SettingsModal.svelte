@@ -12,16 +12,13 @@
 		app.saveGoogleKey(String(data.get('google-key') || ''));
 	}
 
-	function submitCloudEmail(event: SubmitEvent) {
+	function submitCloudPassword(event: SubmitEvent) {
 		event.preventDefault();
-		const data = new FormData(event.currentTarget as HTMLFormElement);
-		void app.sendCloudCode(String(data.get('cloud-email') || ''));
-	}
-
-	function submitCloudCode(event: SubmitEvent) {
-		event.preventDefault();
-		const data = new FormData(event.currentTarget as HTMLFormElement);
-		void app.verifyCloudCode(String(data.get('cloud-code') || ''));
+		const form = event.currentTarget as HTMLFormElement;
+		const data = new FormData(form);
+		void app.changeCloudPassword(String(data.get('cloud-password') || '')).then((ok) => {
+			if (ok) form.reset();
+		});
 	}
 
 	function submitCloudInvite(event: SubmitEvent) {
@@ -409,6 +406,23 @@
 									onclick={() => app.signOutCloud()}>Sign out</button
 								>
 							</div>
+							<form class="cloud-form" onsubmit={submitCloudPassword}>
+								<label for="cloud-password">Change password</label>
+								<div class="input-row">
+									<input
+										id="cloud-password"
+										name="cloud-password"
+										type="password"
+										autocomplete="new-password"
+										minlength="8"
+										placeholder="At least 8 characters"
+										required
+									/>
+									<button class="btn btn--ghost" type="submit" disabled={app.state.cloud.busy}
+										>{app.state.cloud.busy ? 'Saving…' : 'Update'}</button
+									>
+								</div>
+							</form>
 						</div>
 						{#if app.isAdmin()}
 							<div class="cloud-actions">
@@ -462,60 +476,11 @@
 							</div>
 						</div>
 					{:else}
-						{#if app.state.cloud.step === 'email'}
-							<form class="cloud-form" onsubmit={submitCloudEmail}>
-								<label for="cloud-email">Email</label>
-								<div class="input-row">
-									<input
-										id="cloud-email"
-										name="cloud-email"
-										type="email"
-										autocomplete="email"
-										placeholder="you@example.com"
-										value={app.state.cloud.email}
-										required
-									/>
-									<button class="btn btn--primary" type="submit" disabled={app.state.cloud.busy}
-										>{app.state.cloud.busy ? 'Sending…' : 'Send code'}</button
-									>
-								</div>
-							</form>
-						{:else}
-							<form class="cloud-form" onsubmit={submitCloudCode}>
-								<label for="cloud-code">Code sent to {app.state.cloud.email}</label>
-								<div class="input-row">
-									<input
-										id="cloud-code"
-										name="cloud-code"
-										type="text"
-										inputmode="numeric"
-										autocomplete="one-time-code"
-										autocapitalize="off"
-										spellcheck="false"
-										placeholder="123456"
-										required
-									/>
-									<button class="btn btn--primary" type="submit" disabled={app.state.cloud.busy}
-										>{app.state.cloud.busy ? 'Checking…' : 'Sign in'}</button
-									>
-								</div>
-							</form>
-							<div class="access-small-actions">
-								<button
-									class="micro-link"
-									type="button"
-									onclick={() => app.sendCloudCode(app.state.cloud.email)}>Resend code</button
-								>
-								<button class="micro-link" type="button" onclick={() => app.backToEmailStep()}
-									>Use a different email</button
-								>
-							</div>
-						{/if}
 						<p class="cloud-status">{app.state.cloud.message}</p>
 						<p class="field-note">
-							Sign in with the 6-digit code sent to your email; there is no link to click. The owner
-							must approve this account before the map or simulator unlocks. Built-in Supabase email
-							only reaches project team addresses, so invited explorers need custom SMTP.
+							Sign in or create an account from the MistWalk access screen with email and password.
+							No email code or link is sent. The owner must approve new accounts before the map or
+							simulator unlocks.
 						</p>
 					{/if}
 				</section>

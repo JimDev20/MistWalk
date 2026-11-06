@@ -59,29 +59,29 @@ export async function watchCloudAuth(callback: (user: User | null) => void): Pro
 	};
 }
 
-export async function sendEmailCode(email: string): Promise<boolean> {
+export async function signUpWithPassword(
+	email: string,
+	password: string
+): Promise<{ needsConfirmation: boolean }> {
 	const supabase = getClient();
 	if (!supabase) throw new Error('Cloud sync is not configured.');
-	const { error } = await supabase.auth.signInWithOtp({
-		email,
-		options: {
-			shouldCreateUser: true
-		}
-	});
+	const { data, error } = await supabase.auth.signUp({ email, password });
 	if (error) throw new Error(error.message);
-	return true;
+	return { needsConfirmation: !data.session };
 }
 
-export async function verifyEmailCode(email: string, token: string): Promise<boolean> {
+export async function signInWithPassword(email: string, password: string): Promise<void> {
 	const supabase = getClient();
 	if (!supabase) throw new Error('Cloud sync is not configured.');
-	const { error } = await supabase.auth.verifyOtp({
-		email,
-		token,
-		type: 'email'
-	});
+	const { error } = await supabase.auth.signInWithPassword({ email, password });
 	if (error) throw new Error(error.message);
-	return true;
+}
+
+export async function updatePassword(password: string): Promise<void> {
+	const supabase = getClient();
+	if (!supabase) throw new Error('Cloud sync is not configured.');
+	const { error } = await supabase.auth.updateUser({ password });
+	if (error) throw new Error(error.message);
 }
 
 export async function cloudSignOut(): Promise<void> {

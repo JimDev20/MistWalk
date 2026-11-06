@@ -79,10 +79,11 @@ import {
 	fetchMembers,
 	fetchMembership,
 	redeemInviteCode,
-	sendEmailCode,
 	setMemberStatus,
+	signInWithPassword,
+	signUpWithPassword,
+	updatePassword,
 	uploadCloudBackup,
-	verifyEmailCode,
 	watchCloudAuth
 } from './cloud.ts';
 
@@ -245,8 +246,6 @@ class MistWalk {
 			member: null,
 			email: '',
 			busy: false,
-			step: 'email',
-			code: '',
 			sample: false,
 			message: cloudConfigured ? 'Checking your access…' : 'Cloud sync is not configured.',
 			lastSavedAt: 0,
@@ -2661,8 +2660,6 @@ class MistWalk {
 					cacheMembership(null);
 					this.state.cloud.member = null;
 					this.state.cloud.status = 'signed-out';
-					this.state.cloud.step = 'email';
-					this.state.cloud.code = '';
 					this.state.cloud.members = [];
 					this.state.cloud.lastSavedAt = 0;
 					this.state.cloud.syncState = 'idle';
@@ -2670,7 +2667,7 @@ class MistWalk {
 					this.state.cloud.inviteCode = '';
 					this.approvedHandledFor = '';
 					this.lastSeenRemoteAt = 0;
-					this.state.cloud.message = 'Sign in to request access.';
+					this.state.cloud.message = 'Sign in or create an account to request access.';
 					return;
 				}
 				this.state.cloud.email = user.email || '';
@@ -2836,54 +2833,89 @@ class MistWalk {
 		else void this.maybeAutoStartLive();
 	}
 
-	async sendCloudCode(email: string): Promise<void> {
+	async signUpCloud(email: string, password: string): Promise<void> {
 		const value = String(email || '').trim();
 		if (!value || !value.includes('@')) {
 			this.state.cloud.message = 'Enter a valid email address.';
 			return;
 		}
-		this.state.cloud.busy = true;
-		this.state.cloud.email = value;
-		try {
-			await sendEmailCode(value);
-			this.state.cloud.step = 'code';
-			this.state.cloud.message =
-				'Code sent. Enter the 6-digit code from the email here. There is no link to click.';
-			this.toast('Check your email for the 6-digit MistWalk code.', 'success', 5200);
-		} catch (err) {
-			this.state.cloud.message = errorMessage(err) || 'The sign-in code could not be sent.';
-			this.toast(this.state.cloud.message, 'error', 6500);
-		} finally {
-			this.state.cloud.busy = false;
-		}
-	}
-
-	async verifyCloudCode(code: string): Promise<void> {
-		const token = String(code || '').replace(/\s+/g, '');
-		if (token.length < 6) {
-			this.state.cloud.message = 'Enter the code from your email.';
+		if (String(password || '').length < 8) {
+			this.state.cloud.message = 'Use a password with at least 8 characters.';
 			return;
 		}
 		this.state.cloud.busy = true;
-		this.state.cloud.code = token;
+		this.state.cloud.email = value;
 		try {
-			await verifyEmailCode(this.state.cloud.email, token);
-			this.state.cloud.step = 'email';
-			this.state.cloud.code = '';
-			this.state.cloud.message = 'Signed in. Checking your access…';
+			const { needsConfirmation } = await signUpWithPassword(value, password);
+			if (needsConfirmation) {
+				this.state.cloud.message =
+					'Your account was created, but this Supabase project still requires email confirmation. Ask the owner to turn off “Confirm email” in Supabase, then sign in.';
+				this.toast('Email confirmation is still enabled in Supabase.', 'error', 7000);
+				return;
+			}
+			this.state.cloud.message = 'Account created. Waiting for the owner to approve this account.';
+			this.toast('Account created. Waiting for owner approval.', 'success', 5200);
 			await this.refreshMembership();
 		} catch (err) {
-			this.state.cloud.message = errorMessage(err) || 'That code was not accepted.';
+			const text = errorMessage(err) || 'The account could not be created.';
+			this.state.cloud.message = /already registered/i.test(text)
+				? 'An account already exists for this email. Sign in instead.'
+				: text;
 			this.toast(this.state.cloud.message, 'error', 6500);
 		} finally {
 			this.state.cloud.busy = false;
 		}
 	}
 
-	backToEmailStep(): void {
-		this.state.cloud.step = 'email';
-		this.state.cloud.code = '';
-		this.state.cloud.message = 'Enter your email to sign in or request access.';
+	async signInCloudWithPassword(email: string, password: string): Promise<void> {
+		const value = String(email || '').trim();
+		if (!value || !value.includes('@')) {
+			this.state.cloud.message = 'Enter a valid email address.';
+			return;
+		}
+		if (!password) {
+			this.state.cloud.message = 'Enter your password.';
+			return;
+		}
+		this.state.cloud.busy = true;
+		this.state.cloud.email = value;
+		try {
+			await signInWithPassword(value, password);
+			this.state.cloud.message = 'Signed in. Checking your access…';
+			await this.refreshMembership();
+		} catch (err) {
+			const text = errorMessage(err) || 'Sign-in failed.';
+			this.state.cloud.message = /invalid login credentials/i.test(text)
+				? 'Email or password is incorrect.'
+				: text;
+			this.toast(this.state.cloud.message, 'error', 6500);
+		} finally {
+			this.state.cloud.busy = false;
+		}
+	}
+
+	async changeCloudPassword(password: string): Promise<boolean> {
+		if (!this.state.cloud.user) {
+			this.state.cloud.message = 'Sign in before changing the password.';
+			return false;
+		}
+		if (String(password || '').length < 8) {
+			this.state.cloud.message = 'Use a password with at least 8 characters.';
+			return false;
+		}
+		this.state.cloud.busy = true;
+		try {
+			await updatePassword(password);
+			this.state.cloud.message = 'Password updated.';
+			this.toast('Password updated.', 'success', 3600);
+			return true;
+		} catch (err) {
+			this.state.cloud.message = errorMessage(err) || 'The password could not be changed.';
+			this.toast(this.state.cloud.message, 'error', 6500);
+			return false;
+		} finally {
+			this.state.cloud.busy = false;
+		}
 	}
 
 	async signOutCloud() {
@@ -2901,8 +2933,6 @@ class MistWalk {
 			this.state.cloud.member = null;
 			this.state.cloud.status = 'signed-out';
 			this.state.cloud.user = null;
-			this.state.cloud.step = 'email';
-			this.state.cloud.code = '';
 			this.state.cloud.members = [];
 			this.state.cloud.inviteCode = '';
 			this.approvedHandledFor = '';
@@ -2957,8 +2987,6 @@ class MistWalk {
 		this.suspendActivity();
 		this.sampleReturnProfile = this.state.settings.lastProfile === 'demo' ? 'demo' : 'live';
 		this.state.cloud.sample = true;
-		this.state.cloud.step = 'email';
-		this.state.cloud.code = '';
 		this.state.cloud.message = 'Sample mode. Sign in to request a real map.';
 		const fresh = createProgress();
 		this.state.profiles = { ...this.state.profiles, demo: fresh };

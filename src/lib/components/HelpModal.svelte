@@ -44,7 +44,7 @@
 					<p>
 						No analytics. Your tiles, trail, and stats stay in this browser's local storage with an
 						IndexedDB mirror. On private deployments, approved accounts can sync with Supabase using
-						a one-time email code. The map and simulator stay locked until the owner approves the
+						an email and password. The map and simulator stay locked until the owner approves the
 						account; invite codes do not bypass approval.
 					</p>
 				</article>

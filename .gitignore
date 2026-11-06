@@ -56,3 +56,6 @@ supabase/*.local.sql
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Local documentation assets
+docs/

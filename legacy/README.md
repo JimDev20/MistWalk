@@ -6,8 +6,6 @@ No account. No backend. No subscription. One browser, one explorer.
 
 The interface follows a flat true-black app-screen direction: Archivo, one icy signal hue, no glass or gradients in the chrome. The map is the only textured field.
 
-![MistWalk exploration screen](docs/exploration.png)
-
 ## What it does
 
 - **Real-time GPS tracking** with `navigator.geolocation.watchPosition()`. A 52 px male walker avatar marks your live position, with a heading wedge, accuracy ring and breadcrumb trail.
@@ -120,7 +118,6 @@ sw.js                       app-shell service worker
 manifest.webmanifest        PWA manifest
 server.py / start.bat       zero-dependency local server
 tests/core.test.mjs         Node tests for the rules
-docs/                       screenshots
 ```
 
 ## Tests

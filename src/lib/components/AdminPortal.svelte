@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import type { MemberRecord, MemberStatus } from '#lib/types.ts';
@@ -10,14 +9,20 @@
 		fetchMembers,
 		fetchMembership,
 		getCloudUser,
-		setMemberStatus
+		setMemberStatus,
+		signInWithPassword
 	} from '#lib/cloud.ts';
 
-	type Phase = 'loading' | 'unconfigured' | 'checking' | 'admin' | 'denied' | 'error';
+	type Phase =
+		'loading' | 'unconfigured' | 'checking' | 'signed-out' | 'admin' | 'denied' | 'error';
 
 	let phase = $state<Phase>('loading');
 	let email = $state('');
+	let password = $state('');
+	let signInBusy = $state(false);
 	let message = $state('');
+	let deniedTitle = $state('Owner access paused.');
+	let deniedNote = $state('');
 	let me = $state<MemberRecord | null>(null);
 	let members = $state<MemberRecord[]>([]);
 	let membersBusy = $state(false);
@@ -53,7 +58,9 @@
 		try {
 			const user = await getCloudUser();
 			if (!user) {
-				await goto(resolve('/'));
+				phase = 'signed-out';
+				email = '';
+				message = '';
 				return;
 			}
 			await checkAdmin(user.email || '');
@@ -66,17 +73,23 @@
 	async function checkAdmin(userEmail: string): Promise<void> {
 		phase = 'checking';
 		message = '';
+		stopRefresh();
 		try {
 			const row = await fetchMembership();
 			me = row;
 			email = userEmail || row?.email || '';
 			if (!row || row.role !== 'admin') {
-				await goto(resolve('/'));
+				deniedTitle = 'This account is not an owner.';
+				deniedNote = '';
+				message = 'Sign in with an owner account to open this console.';
+				phase = 'denied';
 				return;
 			}
 			if (row.status !== 'approved') {
+				deniedTitle = 'Owner access paused.';
+				deniedNote = 'Promote the owner once from the Supabase SQL editor, then sign in again.';
+				message = 'This owner account is not approved yet.';
 				phase = 'denied';
-				message = 'This owner account is not approved. Promote it from the SQL editor.';
 				return;
 			}
 			phase = 'admin';
@@ -85,6 +98,29 @@
 		} catch (err) {
 			phase = 'error';
 			message = errorText(err);
+		}
+	}
+
+	async function submitLogin(event: SubmitEvent): Promise<void> {
+		event.preventDefault();
+		const value = email.trim();
+		if (!value || !value.includes('@') || !password) {
+			message = 'Enter your owner email and password.';
+			return;
+		}
+		signInBusy = true;
+		message = '';
+		try {
+			await signInWithPassword(value, password);
+			const user = await getCloudUser();
+			password = '';
+			await checkAdmin(user?.email || value);
+		} catch (err) {
+			phase = 'signed-out';
+			const text = errorText(err);
+			message = /invalid login credentials/i.test(text) ? 'Email or password is incorrect.' : text;
+		} finally {
+			signInBusy = false;
 		}
 	}
 
@@ -156,7 +192,9 @@
 		stopRefresh();
 		me = null;
 		members = [];
-		await goto(resolve('/'));
+		password = '';
+		phase = 'signed-out';
+		message = '';
 	}
 
 	function startRefresh(): void {
@@ -197,7 +235,7 @@
 		</a>
 		<nav class="admin-top-actions" aria-label="Owner console actions">
 			<a class="btn btn--ghost btn--small" href={resolve('/')}>Open map</a>
-			{#if phase === 'admin'}
+			{#if phase === 'admin' || phase === 'denied' || phase === 'error'}
 				<button class="btn btn--ghost btn--small" type="button" onclick={signOut}>Sign out</button>
 			{/if}
 		</nav>
@@ -209,6 +247,46 @@
 				<p class="admin-kicker">Owner console</p>
 				<h1>Checking your access…</h1>
 				<p class="admin-copy">One moment while this device talks to the MistWalk cloud.</p>
+			</section>
+		{:else if phase === 'signed-out'}
+			<section class="admin-card admin-card--narrow">
+				<p class="admin-kicker">Owner sign-in</p>
+				<h1>Open the owner console.</h1>
+				<p class="admin-copy">
+					Sign in with the owner email and password. No email code or link is sent.
+				</p>
+				<form class="admin-login-form" onsubmit={submitLogin}>
+					<label for="admin-email">Email</label>
+					<input
+						id="admin-email"
+						name="email"
+						type="email"
+						autocomplete="username"
+						spellcheck="false"
+						placeholder="owner@example.com"
+						bind:value={email}
+						required
+					/>
+					<label for="admin-password">Password</label>
+					<input
+						id="admin-password"
+						name="password"
+						type="password"
+						autocomplete="current-password"
+						placeholder="Owner password"
+						bind:value={password}
+						required
+					/>
+					<button class="btn btn--primary" type="submit" disabled={signInBusy}
+						>{signInBusy ? 'Signing in…' : 'Sign in'}</button
+					>
+				</form>
+				{#if message}
+					<p class="admin-message" aria-live="polite">{message}</p>
+				{/if}
+				<p class="admin-note">
+					New explorers create an account on the main MistWalk page, then wait for approval here.
+				</p>
 			</section>
 		{:else if phase === 'unconfigured'}
 			<section class="admin-card admin-card--narrow">
@@ -223,12 +301,11 @@
 		{:else if phase === 'denied'}
 			<section class="admin-card admin-card--narrow">
 				<p class="admin-kicker">Owner console</p>
-				<h1>Owner access paused.</h1>
+				<h1>{deniedTitle}</h1>
 				<p class="admin-copy">{message}</p>
-				<p class="admin-note">
-					Promote the owner once from the Supabase SQL editor:
-					<code>select public.mistwalk_promote_admin('you@example.com');</code>
-				</p>
+				{#if deniedNote}
+					<p class="admin-note">{deniedNote}</p>
+				{/if}
 				<div class="admin-inline-actions">
 					<button class="btn btn--ghost" type="button" onclick={signOut}>Sign out</button>
 					<a class="btn btn--ghost" href={resolve('/')}>Back to MistWalk</a>
@@ -528,8 +605,7 @@
 		overflow-wrap: anywhere;
 	}
 
-	.admin-copy code,
-	.admin-note code {
+	.admin-copy code {
 		color: var(--accent);
 		font-family: var(--mono);
 		font-size: 0.94em;
@@ -569,6 +645,46 @@
 
 	.admin-link-button {
 		margin-top: 18px;
+	}
+
+	.admin-login-form {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-top: 20px;
+	}
+
+	.admin-login-form label {
+		margin-top: 6px;
+		color: var(--ink-2);
+		font-size: 11px;
+		letter-spacing: 0.04em;
+	}
+
+	.admin-login-form label:first-of-type {
+		margin-top: 0;
+	}
+
+	.admin-login-form input {
+		width: 100%;
+		height: 44px;
+		padding: 0 13px;
+		border: 1px solid var(--line);
+		border-radius: 8px;
+		background: var(--bg-2);
+		color: var(--ink);
+		font-size: 14px;
+		outline: none;
+	}
+
+	.admin-login-form input:focus {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px rgba(156, 236, 245, 0.12);
+	}
+
+	.admin-login-form .btn {
+		height: 44px;
+		margin-top: 8px;
 	}
 
 	.admin-heading {
@@ -806,6 +922,15 @@
 
 		.admin-card {
 			padding: 18px 14px;
+		}
+
+		.admin-login-form input {
+			height: 48px;
+			font-size: 16px;
+		}
+
+		.admin-login-form .btn {
+			height: 48px;
 		}
 
 		.admin-card h1 {
