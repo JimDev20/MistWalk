@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { app } from '#lib/mistwalk.svelte.ts';
 
@@ -18,17 +19,18 @@
 				: 'Sign in with your email and password.';
 	}
 
-	function submitCredentials(event: SubmitEvent) {
+	async function submitCredentials(event: SubmitEvent) {
 		event.preventDefault();
 		if (mode === 'signup') {
 			if (password !== confirmPassword) {
 				app.state.cloud.message = 'The passwords do not match.';
 				return;
 			}
-			void app.signUpCloud(email, password);
-			return;
+			await app.signUpCloud(email, password);
+		} else {
+			await app.signInCloudWithPassword(email, password);
 		}
-		void app.signInCloudWithPassword(email, password);
+		if (app.isAdmin()) await goto(resolve('/admin'));
 	}
 
 	function submitInvite(event: SubmitEvent) {
@@ -210,7 +212,6 @@
 				<p class="access-note">
 					No email code and no link are sent. Forgotten passwords are reset by the owner. The map
 					and simulator stay locked until this account is approved.
-					<a href={resolve('/admin')}>Owner console</a>
 				</p>
 			</div>
 		{/if}

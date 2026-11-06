@@ -58,7 +58,7 @@ When Supabase is configured:
 6. The owner can generate an invite code. Redeeming it only marks the request as invited; the owner still has to approve the account.
 7. Revoking access locks that account out of backups on its next membership check.
 
-The main portal at `/` has **Sign in** and **Create account** using email and password. The owner console at `/admin` has its own password sign-in for convenience, but it uses the same Supabase session. The schema prevents members from approving themselves or changing their own role.
+The main portal at `/` has **Sign in** and **Create account** using email and password, with no visible owner link. Signing in there with an owner account redirects to `/admin`. The owner console also has its own password sign-in, and both use the same Supabase session. The schema prevents members from approving themselves or changing their own role.
 
 ## Supabase setup
 
