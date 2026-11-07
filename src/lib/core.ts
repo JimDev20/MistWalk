@@ -12,6 +12,8 @@ import type {
 	NormalizedFix,
 	NoteItem,
 	PathPoint,
+	PlaceData,
+	PlaceItem,
 	Progress,
 	ProgressSummary,
 	Units,
@@ -31,6 +33,7 @@ export const PROGRESS_VERSION = 3;
 export const MAX_SESSION_POINTS = 4_000;
 export const MAX_SESSIONS = 60;
 export const MAX_NOTE_LENGTH = 280;
+export const MAX_PLACE_NAME_LENGTH = 60;
 
 /* ------------------------------------------------------------------ */
 /* Web Mercator helpers                                                */
@@ -484,6 +487,7 @@ export function createProgress(): Progress {
 		path: [],
 		sessions: [],
 		notes: {},
+		places: {},
 		stats: {
 			distance: 0,
 			walkingMs: 0,
@@ -561,6 +565,27 @@ export function migrateProgress(raw: unknown): Progress {
 			out.notes[key] = { text, t: Number(data.t) || 0 };
 		}
 	}
+	if (source.places && typeof source.places === 'object') {
+		for (const [key, place] of Object.entries(source.places)) {
+			const cell = parseCellKey(key);
+			if (!cell || !place || typeof place !== 'object') continue;
+			const data = place as Record<string, unknown>;
+			const rating = normalizePlaceRating(data.rating);
+			if (!rating) continue;
+			const center = cellCenter(cell);
+			const lat = Number(data.lat);
+			const lng = Number(data.lng);
+			out.places[key] = {
+				lat: Number.isFinite(lat) ? lat : center.lat,
+				lng: Number.isFinite(lng) ? lng : center.lng,
+				rating,
+				name: normalizePlaceName(data.name) || undefined,
+				comment: normalizeNote(data.comment) || undefined,
+				t: Number(data.t) || 0,
+				ut: Number(data.ut) || undefined
+			};
+		}
+	}
 	out.version = base.version;
 	if (!Number.isFinite(out.stats.distance)) out.stats.distance = 0;
 	if (!Number.isFinite(out.stats.walkingMs)) out.stats.walkingMs = 0;
@@ -577,18 +602,27 @@ export function unlockCells(
 	progress: Progress,
 	cells: GridCell[],
 	t = Date.now(),
-	source = 'gps'
+	source = 'gps',
+	visitId = ''
 ): GridCell[] {
 	const added: GridCell[] = [];
 	for (const cell of cells) {
 		if (!cell || !cell.key) continue;
 		const existing = progress.cells[cell.key];
 		if (!existing) {
-			progress.cells[cell.key] = { t, n: 1, s: source };
+			progress.cells[cell.key] = {
+				t,
+				n: 1,
+				s: source,
+				...(visitId ? { ls: visitId } : {})
+			};
 			added.push(cell);
 		} else {
-			existing.n = (existing.n || 1) + 1;
+			if (!visitId || existing.ls !== visitId) {
+				existing.n = (existing.n || 1) + 1;
+			}
 			existing.lt = t;
+			if (visitId) existing.ls = visitId;
 		}
 	}
 	progress.stats.unlocks = Object.keys(progress.cells).length;
@@ -721,6 +755,19 @@ export function normalizeNote(text: unknown): string {
 		.slice(0, MAX_NOTE_LENGTH);
 }
 
+export function normalizePlaceName(text: unknown): string {
+	return String(text || '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.slice(0, MAX_PLACE_NAME_LENGTH);
+}
+
+export function normalizePlaceRating(value: unknown): number {
+	const number = Number(value);
+	if (!Number.isFinite(number) || number <= 0) return 0;
+	return Math.max(1, Math.min(5, Math.round(number)));
+}
+
 export function setCellNote(
 	progress: Progress,
 	key: string,
@@ -745,6 +792,67 @@ export function listCellNotes(progress: Progress): NoteItem[] {
 		notes.push({ key, text: note.text, t: Number(note.t) || 0, lat: center.lat, lng: center.lng });
 	}
 	return notes.sort((a, b) => b.t - a.t);
+}
+
+export function setPlace(
+	progress: Progress,
+	key: string,
+	place: Partial<PlaceData>,
+	t = Date.now()
+): PlaceData | null {
+	const cell = parseCellKey(key);
+	if (!progress || !cell || !place) return null;
+	const rating = normalizePlaceRating(place.rating);
+	if (!rating) return null;
+	progress.places = progress.places && typeof progress.places === 'object' ? progress.places : {};
+	const existing = progress.places[key];
+	const center = cellCenter(cell);
+	const lat = Number(place.lat);
+	const lng = Number(place.lng);
+	const data: PlaceData = {
+		lat: Number.isFinite(lat) ? lat : (existing?.lat ?? center.lat),
+		lng: Number.isFinite(lng) ? lng : (existing?.lng ?? center.lng),
+		rating,
+		t: existing?.t || t,
+		ut: t
+	};
+	const name = normalizePlaceName(place.name);
+	const comment = normalizeNote(place.comment);
+	if (name) data.name = name;
+	if (comment) data.comment = comment;
+	progress.places[key] = data;
+	return data;
+}
+
+export function removePlace(progress: Progress, key: string): boolean {
+	if (!progress?.places || !parseCellKey(key)) return false;
+	if (!(key in progress.places)) return false;
+	delete progress.places[key];
+	return true;
+}
+
+export function listPlaces(progress: Progress): PlaceItem[] {
+	const places: PlaceItem[] = [];
+	if (!progress?.places) return places;
+	for (const [key, place] of Object.entries(progress.places)) {
+		const cell = parseCellKey(key);
+		const rating = normalizePlaceRating(place?.rating);
+		if (!cell || !rating) continue;
+		const center = cellCenter(cell);
+		const lat = Number(place.lat);
+		const lng = Number(place.lng);
+		places.push({
+			key,
+			lat: Number.isFinite(lat) ? lat : center.lat,
+			lng: Number.isFinite(lng) ? lng : center.lng,
+			rating,
+			name: normalizePlaceName(place.name) || undefined,
+			comment: normalizeNote(place.comment) || undefined,
+			t: Number(place.t) || 0,
+			ut: Number(place.ut) || undefined
+		});
+	}
+	return places.sort((a, b) => b.rating - a.rating || (b.ut || b.t) - (a.ut || a.t));
 }
 
 export function progressStats(progress: Progress): ProgressSummary {

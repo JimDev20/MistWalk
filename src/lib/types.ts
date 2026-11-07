@@ -28,6 +28,7 @@ export interface CellMeta {
 	n: number;
 	s?: string;
 	lt?: number;
+	ls?: string;
 }
 
 export interface NoteData {
@@ -41,6 +42,28 @@ export interface NoteItem extends NoteData {
 	lng: number;
 	coordsLabel?: string;
 	dateLabel?: string;
+}
+
+export interface PlaceData {
+	lat: number;
+	lng: number;
+	rating: number;
+	name?: string;
+	comment?: string;
+	t: number;
+	ut?: number;
+}
+
+export interface PlaceItem extends PlaceData {
+	key: string;
+	coordsLabel?: string;
+	dateLabel?: string;
+}
+
+export interface PlaceDraft extends Partial<PlaceData> {
+	key: string;
+	lat: number;
+	lng: number;
 }
 
 export interface LastView {
@@ -128,6 +151,7 @@ export interface Progress {
 	path: PathPoint[];
 	sessions: ArchivedSession[];
 	notes: Record<string, NoteData>;
+	places: Record<string, PlaceData>;
 	stats: ProgressStatsData;
 	last: LastView | null;
 	settings: ProgressSettings;

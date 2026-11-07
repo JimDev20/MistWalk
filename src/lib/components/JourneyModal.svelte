@@ -4,12 +4,27 @@
 
 	let noteText = $state('');
 	let noteKey: string | null = $state(null);
+	let placeName = $state('');
+	let placeRating = $state(0);
+	let placeComment = $state('');
+	let placeFormKey = '';
 
 	$effect(() => {
 		if (app.state.modal === 'journey-modal' && app.state.journey.tab === 'notes') {
 			noteKey = app.currentCellKey();
 			noteText = app.noteForCurrent();
 		}
+	});
+
+	$effect(() => {
+		const draft = app.state.placeDraft;
+		if (app.state.modal !== 'journey-modal' || app.state.journey.tab !== 'places') return;
+		const seed = draft ? `${draft.key}:${draft.ut ?? draft.t ?? ''}` : 'none';
+		if (seed === placeFormKey) return;
+		placeFormKey = seed;
+		placeName = draft?.name ?? '';
+		placeRating = draft?.rating ?? 0;
+		placeComment = draft?.comment ?? '';
 	});
 
 	function badgeIcon(metric: string) {
@@ -35,6 +50,10 @@
 	function removeCurrent() {
 		noteText = '';
 		app.saveNote('');
+	}
+
+	function savePlace() {
+		app.savePlace({ rating: placeRating, name: placeName, comment: placeComment });
 	}
 </script>
 
@@ -83,6 +102,13 @@
 					class:is-active={app.state.journey.tab === 'notes'}
 					onclick={() => tab('notes')}>Notes <span>{app.state.ui.noteCount}</span></button
 				>
+				<button
+					type="button"
+					role="tab"
+					aria-selected={app.state.journey.tab === 'places'}
+					class:is-active={app.state.journey.tab === 'places'}
+					onclick={() => tab('places')}>Places <span>{app.state.places.length}</span></button
+				>
 			</div>
 
 			<div class="modal-body journey-body">
@@ -104,7 +130,7 @@
 						<div><span>Sessions</span><strong>{app.state.ui.sessionCount}</strong></div>
 						<div><span>Notes</span><strong>{app.state.ui.noteCount}</strong></div>
 						<div>
-							<span>Favorites</span><strong>{app.state.stats?.favoriteCells ?? 0}</strong>
+							<span>Repeat visits</span><strong>{app.state.stats?.favoriteCells ?? 0}</strong>
 						</div>
 						<div><span>Visits</span><strong>{app.state.stats?.visits ?? 0}</strong></div>
 					</div>
@@ -255,6 +281,127 @@
 						{:else}
 							<div class="journey-empty">
 								<p>No daily records yet. Pause a walk or switch profiles to record today.</p>
+							</div>
+						{/if}
+					</section>
+				{:else if app.state.journey.tab === 'places'}
+					<section class="journey-section">
+						<div class="journey-section-head">
+							<h3>Favorite places</h3>
+							<span>{app.state.ui.placeCount} · rated 1–5 stars</span>
+						</div>
+						<form
+							class="place-form"
+							onsubmit={(event) => {
+								event.preventDefault();
+								savePlace();
+							}}
+						>
+							<div class="place-form-head">
+								<div>
+									<span class="place-form-label">Place target</span>
+									<strong>{app.placeTargetLabel() || 'No location selected'}</strong>
+								</div>
+								<div class="place-form-actions">
+									<button class="btn btn--ghost" type="button" onclick={() => app.useCurrentPlace()}
+										>Use current</button
+									>
+									<button
+										class="btn btn--ghost"
+										class:is-active={app.state.placePick}
+										type="button"
+										onclick={() => app.startPlacePick()}>Pick on map</button
+									>
+								</div>
+							</div>
+							<div class="star-picker" role="radiogroup" aria-label="Star rating">
+								{#each [1, 2, 3, 4, 5] as star (star)}
+									<button
+										type="button"
+										role="radio"
+										class:is-active={star <= placeRating}
+										aria-checked={star === placeRating}
+										aria-label={`${star} star${star === 1 ? '' : 's'}`}
+										onclick={() => (placeRating = star)}
+									>
+										<svg><use href="#i-star"></use></svg>
+									</button>
+								{/each}
+								<span>{placeRating ? `${placeRating}/5` : 'Choose a rating'}</span>
+							</div>
+							<label for="place-name">Name <small>(optional)</small></label>
+							<input
+								id="place-name"
+								maxlength="60"
+								bind:value={placeName}
+								placeholder="A bench with a view"
+							/>
+							<label for="place-comment">Comment <small>(optional)</small></label>
+							<textarea
+								id="place-comment"
+								maxlength="280"
+								rows="3"
+								bind:value={placeComment}
+								placeholder="What makes this place worth returning to?"></textarea>
+							<div class="note-actions">
+								<span>{placeComment.length}/280</span>
+								{#if app.state.placeDraft}
+									<button class="btn btn--ghost" type="button" onclick={() => app.clearPlaceDraft()}
+										>Clear</button
+									>
+								{/if}
+								<button
+									class="btn btn--primary"
+									type="submit"
+									disabled={!app.state.placeDraft || !placeRating}>Save place</button
+								>
+							</div>
+						</form>
+						{#if app.state.places.length}
+							<div class="note-list">
+								{#each app.state.places as place (place.key)}
+									<article
+										class="note-item"
+										class:is-highlighted={app.state.highlightPlace === place.key}
+									>
+										<div>
+											<div class="place-title">
+												<strong>{place.name || 'Favorite place'}</strong>
+												<span class="place-stars" aria-label={`${place.rating} out of 5 stars`}>
+													{#each [1, 2, 3, 4, 5] as star (star)}
+														<svg class:is-active={star <= place.rating}
+															><use href="#i-star"></use></svg
+														>
+													{/each}
+												</span>
+											</div>
+											{#if place.comment}<p>{place.comment}</p>{/if}
+											<small>{place.coordsLabel} · {place.dateLabel}</small>
+										</div>
+										<div class="note-item-actions">
+											<button
+												class="btn btn--ghost"
+												type="button"
+												onclick={() => app.editPlace(place.key)}>Edit</button
+											>
+											<button
+												class="btn btn--ghost"
+												type="button"
+												onclick={() => app.jumpToPlace(place.key)}>Go</button
+											>
+											<button
+												class="btn btn--danger-ghost"
+												type="button"
+												onclick={() => app.deletePlace(place.key)}
+												><svg><use href="#i-trash"></use></svg><span>Delete</span></button
+											>
+										</div>
+									</article>
+								{/each}
+							</div>
+						{:else}
+							<div class="journey-empty">
+								<p>No favorite places yet. Use the star button or pick a point on the map.</p>
 							</div>
 						{/if}
 					</section>

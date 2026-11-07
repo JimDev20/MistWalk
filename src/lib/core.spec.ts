@@ -23,14 +23,17 @@ import {
 	interpolatePoints,
 	levelFor,
 	listCellNotes,
+	listPlaces,
 	migrateProgress,
 	normalizeFix,
 	normalizeNote,
 	parseCellKey,
 	progressStats,
 	projectMeters,
+	removePlace,
 	round5,
 	setCellNote,
+	setPlace,
 	unlockCells,
 	unprojectMeters
 } from './core.ts';
@@ -256,9 +259,79 @@ describe('progress', () => {
 		expect(stats.maxVisits).toBe(3);
 	});
 
+	it('counts a tile once per walk session without resetting old visits', () => {
+		const progress = createProgress();
+		const cell = cellFromLatLng(14.5547, 121.0244);
+		unlockCells(progress, [cell], 1, 'gps', 'walk-1');
+		unlockCells(progress, [cell], 2, 'gps', 'walk-1');
+		unlockCells(progress, [cell], 3, 'gps', 'walk-1');
+		expect(progress.cells[cell.key].n).toBe(1);
+		expect(progress.cells[cell.key].ls).toBe('walk-1');
+		unlockCells(progress, [cell], 4, 'gps', 'walk-2');
+		expect(progress.cells[cell.key].n).toBe(2);
+		expect(progress.cells[cell.key].ls).toBe('walk-2');
+	});
+
 	it('upgrades the stored progress version', () => {
 		const migrated = migrateProgress({ version: 1, cells: {}, path: [] });
 		expect(migrated.version).toBe(PROGRESS_VERSION);
+	});
+
+	it('stores one rated favorite place per tile and migrates it', () => {
+		const progress = createProgress();
+		const cell = cellFromLatLng(14.5547, 121.0244);
+		const saved = setPlace(
+			progress,
+			cell.key,
+			{
+				lat: 14.5547,
+				lng: 121.0244,
+				rating: 4,
+				name: '  Bench   view ',
+				comment: ' Quiet corner '
+			},
+			100
+		);
+		expect(saved).toMatchObject({
+			rating: 4,
+			name: 'Bench view',
+			comment: 'Quiet corner',
+			t: 100,
+			ut: 100
+		});
+		setPlace(
+			progress,
+			cell.key,
+			{
+				lat: 14.5548,
+				lng: 121.0245,
+				rating: 5,
+				name: 'Bench view',
+				comment: ''
+			},
+			200
+		);
+		expect(Object.keys(progress.places)).toHaveLength(1);
+		expect(listPlaces(progress)[0]).toMatchObject({
+			key: cell.key,
+			rating: 5,
+			name: 'Bench view',
+			t: 100,
+			ut: 200
+		});
+		expect(listPlaces(progress)[0].comment).toBeUndefined();
+		const migrated = migrateProgress(JSON.parse(JSON.stringify(progress)));
+		expect(listPlaces(migrated)[0]).toMatchObject({ key: cell.key, rating: 5 });
+		expect(removePlace(progress, cell.key)).toBe(true);
+		expect(listPlaces(progress)).toHaveLength(0);
+	});
+
+	it('rejects favorite places without a valid rating', () => {
+		const progress = createProgress();
+		const cell = cellFromLatLng(14.5547, 121.0244);
+		expect(setPlace(progress, cell.key, { rating: 0 }, 1)).toBeNull();
+		expect(setPlace(progress, cell.key, { rating: 6 }, 1)?.rating).toBe(5);
+		expect(setPlace(progress, 'not-a-cell', { rating: 3 }, 1)).toBeNull();
 	});
 
 	it('archives a session and counts it once', () => {

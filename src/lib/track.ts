@@ -108,6 +108,27 @@ export function buildGeoJSON(
 			geometry: { type: 'Point', coordinates: [center.lng, center.lat] }
 		});
 	}
+	for (const [key, place] of Object.entries(progress?.places || {})) {
+		const cell = parseCellKey(key);
+		if (!cell) continue;
+		const center = cellCenter(cell);
+		features.push({
+			type: 'Feature',
+			properties: {
+				name: place.name || 'Favorite place',
+				rating: place.rating,
+				comment: place.comment || null,
+				updatedAt: place.ut || place.t || null
+			},
+			geometry: {
+				type: 'Point',
+				coordinates: [
+					Number.isFinite(place.lng) ? place.lng : center.lng,
+					Number.isFinite(place.lat) ? place.lat : center.lat
+				]
+			}
+		});
+	}
 	return { type: 'FeatureCollection', name, features };
 }
 

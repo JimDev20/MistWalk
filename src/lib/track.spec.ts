@@ -19,6 +19,14 @@ function sampleProgress() {
 	});
 	const cell = cellFromLatLng(14.5547, 121.0244);
 	progress.notes[cell.key] = { text: 'A landmark', t: 1_700_000_200_000 };
+	progress.places[cell.key] = {
+		lat: 14.5547,
+		lng: 121.0244,
+		rating: 4,
+		name: 'Bench with a view',
+		comment: 'Quiet at sunrise',
+		t: 1_700_000_300_000
+	};
 	return progress;
 }
 
@@ -33,12 +41,22 @@ describe('track interchange', () => {
 		expect(parsed.points[0][0]).toBeCloseTo(14.5547, 6);
 	});
 
-	it('exports GeoJSON with notes and imports line features', () => {
+	it('exports GeoJSON with notes, places, and imports line features', () => {
 		const geojson = buildGeoJSON(sampleProgress());
-		expect(geojson.features).toHaveLength(2);
-		const [line, point] = geojson.features as Array<{ geometry: { type: string } }>;
+		expect(geojson.features).toHaveLength(3);
+		const [line, note, place] = geojson.features as Array<{
+			geometry: { type: string; coordinates: number[] };
+			properties: Record<string, unknown>;
+		}>;
 		expect(line.geometry.type).toBe('LineString');
-		expect(point.geometry.type).toBe('Point');
+		expect(note.geometry.type).toBe('Point');
+		expect(place.geometry.type).toBe('Point');
+		expect(place.properties).toMatchObject({
+			name: 'Bench with a view',
+			rating: 4,
+			comment: 'Quiet at sunrise'
+		});
+		expect(place.geometry.coordinates).toEqual([121.0244, 14.5547]);
 		const parsed = parseTrackFile(JSON.stringify(geojson), 'journey.geojson');
 		expect(parsed.points).toHaveLength(2);
 	});

@@ -52,10 +52,12 @@
 					<span class="help-num">04</span>
 					<h3>Field record</h3>
 					<p>
-						Open Journey to see badges, GPS signal, nearest mist, daily walk history, and tile
-						notes. Pause a walk, arrive at a simulator target, or switch profiles to archive it.
-						Same-day walks merge into one daily record. Routes can be replayed and exported as
-						private GPX or GeoJSON files.
+						Open Journey to see badges, GPS signal, nearest mist, daily walk history, tile notes,
+						and favorite places. The amber repeat-visit layer counts a tile once per walk, not once
+						per GPS fix. Keep one favorite place per 12-metre tile: rate it 1–5 stars, add an
+						optional comment, and select it to show the big star highlight on the map. Pause a walk,
+						arrive at a simulator target, or switch profiles to archive it. Same-day walks merge
+						into one daily record, and routes export as private GPX or GeoJSON files.
 					</p>
 				</article>
 				<article class="help-card">

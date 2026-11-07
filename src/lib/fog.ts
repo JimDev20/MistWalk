@@ -26,6 +26,13 @@ interface Pulse {
 	t: number;
 }
 
+interface PlaceMarker {
+	key: string;
+	lat: number;
+	lng: number;
+	rating: number;
+}
+
 interface FogStats {
 	visible: number;
 	drawn: number;
@@ -46,6 +53,8 @@ interface RenderFrame {
 	reducedMotion?: boolean;
 	showGrid?: boolean;
 	showFavorites?: boolean;
+	places?: PlaceMarker[];
+	highlightPlace?: string | null;
 	pulses?: Pulse[];
 	zoom?: number;
 }
@@ -75,6 +84,25 @@ function polygon(ctx: CanvasRenderingContext2D, points: Point[] | null): boolean
 	for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
 	ctx.closePath();
 	return true;
+}
+
+function starPath(
+	ctx: CanvasRenderingContext2D,
+	x: number,
+	y: number,
+	outer: number,
+	inner = outer * 0.45
+): void {
+	ctx.beginPath();
+	for (let i = 0; i < 10; i += 1) {
+		const radius = i % 2 === 0 ? outer : inner;
+		const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+		const px = x + Math.cos(angle) * radius;
+		const py = y + Math.sin(angle) * radius;
+		if (i === 0) ctx.moveTo(px, py);
+		else ctx.lineTo(px, py);
+	}
+	ctx.closePath();
 }
 
 function cellCornersScreen(project: Project, cell: GridCell): Point[] | null {
@@ -352,6 +380,114 @@ export class FogRenderer {
 		ctx.restore();
 	}
 
+	drawPlaces(
+		project: Project,
+		places: PlaceMarker[] | undefined,
+		highlight: string | null | undefined,
+		zoom: number
+	): void {
+		if (!places?.length) return;
+		const { ctx } = this;
+		ctx.save();
+		let selected: PlaceMarker | null = null;
+		for (const place of places) {
+			if (highlight && place.key === highlight) {
+				selected = place;
+				continue;
+			}
+			const p = project(place.lat, place.lng);
+			if (!p || p.x < -30 || p.y < -30 || p.x > this.width + 30 || p.y > this.height + 30) continue;
+			const rating = Math.max(1, Math.min(5, Math.round(Number(place.rating) || 1)));
+			const size = zoom >= 15 ? 6 + rating * 1.1 : 3.2;
+			ctx.beginPath();
+			ctx.ellipse(p.x, p.y + 2, size * 0.95, size * 0.35, 0, 0, TAU);
+			ctx.fillStyle = 'rgba(4, 8, 13, 0.5)';
+			ctx.fill();
+			starPath(ctx, p.x, p.y - size * 0.2, size);
+			ctx.fillStyle = `rgba(251, 191, 36, ${0.52 + rating * 0.08})`;
+			ctx.fill();
+			ctx.strokeStyle = 'rgba(8, 12, 18, 0.92)';
+			ctx.lineWidth = 1.1;
+			ctx.stroke();
+			if (zoom >= 16.5 && size >= 10) {
+				ctx.fillStyle = 'rgba(20, 12, 2, 0.9)';
+				ctx.font = `700 ${Math.max(7, size * 0.78)}px ui-sans-serif, system-ui, sans-serif`;
+				ctx.textAlign = 'center';
+				ctx.textBaseline = 'middle';
+				ctx.fillText(String(rating), p.x, p.y - size * 0.2);
+			}
+		}
+		if (selected) this.drawPlaceHighlight(project, selected, zoom);
+		ctx.restore();
+	}
+
+	drawPlaceHighlight(project: Project, place: PlaceMarker, zoom: number): void {
+		const p = project(place.lat, place.lng);
+		if (!p || p.x < -90 || p.y < -90 || p.x > this.width + 90 || p.y > this.height + 90) return;
+		const rating = Math.max(1, Math.min(5, Math.round(Number(place.rating) || 1)));
+		const scale = zoom >= 17 ? 1.2 : zoom >= 15 ? 1 : 0.85;
+		const topY = p.y - 26 * scale;
+		const { ctx } = this;
+		ctx.save();
+
+		const glow = ctx.createRadialGradient(p.x, topY, 2, p.x, topY, 48 * scale);
+		glow.addColorStop(0, 'rgba(251, 191, 36, 0.34)');
+		glow.addColorStop(0.55, 'rgba(251, 191, 36, 0.12)');
+		glow.addColorStop(1, 'rgba(251, 191, 36, 0)');
+		ctx.fillStyle = glow;
+		ctx.beginPath();
+		ctx.arc(p.x, topY, 48 * scale, 0, TAU);
+		ctx.fill();
+
+		ctx.beginPath();
+		ctx.ellipse(p.x, p.y + 3, 24 * scale, 8 * scale, 0, 0, TAU);
+		ctx.fillStyle = 'rgba(3, 7, 12, 0.45)';
+		ctx.fill();
+		ctx.beginPath();
+		ctx.ellipse(p.x, p.y, 20 * scale, 6 * scale, 0, 0, TAU);
+		ctx.strokeStyle = 'rgba(251, 191, 36, 0.65)';
+		ctx.lineWidth = 2 * scale;
+		ctx.stroke();
+
+		const beam = ctx.createLinearGradient(p.x, p.y, p.x, topY + 18 * scale);
+		beam.addColorStop(0, 'rgba(251, 191, 36, 0.05)');
+		beam.addColorStop(1, 'rgba(251, 191, 36, 0.55)');
+		ctx.beginPath();
+		ctx.moveTo(p.x, p.y);
+		ctx.lineTo(p.x, topY + 18 * scale);
+		ctx.strokeStyle = beam;
+		ctx.lineWidth = 2 * scale;
+		ctx.stroke();
+
+		for (let layer = 4; layer >= 1; layer -= 1) {
+			const y = topY + layer * 5 * scale;
+			starPath(ctx, p.x, y, 20 * scale, 8 * scale);
+			ctx.fillStyle = `rgba(${180 - layer * 18}, ${120 - layer * 10}, ${20 + layer * 3}, 0.78)`;
+			ctx.fill();
+			ctx.strokeStyle = 'rgba(10, 8, 4, 0.65)';
+			ctx.lineWidth = 1.2 * scale;
+			ctx.stroke();
+		}
+
+		const topStar = ctx.createLinearGradient(0, topY - 20 * scale, 0, topY + 20 * scale);
+		topStar.addColorStop(0, '#fff2b6');
+		topStar.addColorStop(0.45, '#fbbf24');
+		topStar.addColorStop(1, '#d97706');
+		starPath(ctx, p.x, topY, 20 * scale, 8 * scale);
+		ctx.fillStyle = topStar;
+		ctx.fill();
+		ctx.strokeStyle = 'rgba(10, 8, 4, 0.9)';
+		ctx.lineWidth = 1.8 * scale;
+		ctx.stroke();
+
+		ctx.fillStyle = '#2a1a02';
+		ctx.font = `800 ${14 * scale}px ui-sans-serif, system-ui, sans-serif`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(String(rating), p.x, topY + 1);
+		ctx.restore();
+	}
+
 	drawAccuracy(project: Project, current: NormalizedFix | null): void {
 		const accuracy = Number(current?.accuracy);
 		if (!current || !Number.isFinite(accuracy)) return;
@@ -606,6 +742,8 @@ export class FogRenderer {
 			reducedMotion = false,
 			showGrid = true,
 			showFavorites = true,
+			places = [],
+			highlightPlace = null,
 			pulses = [],
 			zoom = 16
 		} = frame;
@@ -617,6 +755,7 @@ export class FogRenderer {
 		this.drawFogBase(time);
 		this.punchCells(project, cells, recent, time);
 		this.drawTrail(project, path);
+		this.drawPlaces(project, places, highlightPlace, zoom);
 		this.drawAccuracy(project, current);
 		this.drawPulses(project, pulses, time, reducedMotion);
 		this.drawTarget(project, current, target);

@@ -21,12 +21,13 @@ The app works fully offline-first with only map tiles needing a network connecti
 - **Approval gate** for private deployments. Every new account waits for the owner, including invite-code holders.
 - **Owner console** at `/admin` with its own email-and-password sign-in; only an approved admin can load member data.
 - **Cross-device sync** for approved accounts, with automatic upload after saves and a restore prompt when another device is newer.
-- **Journey record** with levels, streaks, visit heat, notes, one combined history record per day, and route replay.
+- **Journey record** with levels, streaks, repeat-visit heat, tile notes, favorite places, one combined history record per day, and route replay.
+- **Accurate repeat visits** counted once per 12-metre tile per walk session, without resetting permanent unlocks or old heat.
+- **Favorite places** with one place per tile, 1–5 star ratings, optional comments, and a large pseudo-3D highlight for the selected place.
 - **Achievements** for exploration, distance, streaks, repeat visits, and notes.
-- **Private tile notes** stored locally, plus notes in GeoJSON exports.
-- **GPX/GeoJSON export** of tracks and notes, and imported track overlays that never unlock tiles.
+- **Private tile notes and favorite places** stored locally, plus both in GeoJSON exports.
+- **GPX/GeoJSON export** of tracks, notes, and places, and imported track overlays that never unlock tiles.
 - **Nearest unexplored guide** and GPS quality feedback.
-- **Favorites** highlight tiles crossed more than once.
 - **Local friend challenges** via shareable URL targets, without a server or leaderboard.
 - **Accessibility and display controls** for units, theme, high contrast, and reduced motion.
 - **Backups** locally as JSON, optionally through Supabase, plus PNG share cards.
@@ -201,7 +202,7 @@ src/
   lib/
     components/               Svelte UI (map, HUD, modals, onboarding, access gate)
     types.ts                  Shared TypeScript domain types
-    core.ts                   Grid, walking gate, progress, notes, formatting
+    core.ts                   Grid, walking gate, progress, notes, places, formatting
     features.ts               Achievements, guide, GPS quality, challenges
     track.ts                  GPX and GeoJSON import/export
     fog.ts                    Canvas fog renderer

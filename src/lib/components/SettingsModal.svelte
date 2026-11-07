@@ -153,7 +153,7 @@
 						>
 						<label class="switch-row"
 							><span
-								><strong>Favorite paths</strong><small>{app.state.ui.favoriteSummary}</small></span
+								><strong>Repeat visits</strong><small>{app.state.ui.favoriteSummary}</small></span
 							><input
 								type="checkbox"
 								checked={app.state.settings.showFavorites}

@@ -28,6 +28,14 @@
 			>
 				<svg><use href="#i-note"></use></svg><span>{app.state.ui.noteCount}</span>
 			</button>
+			<button
+				class="position-note"
+				type="button"
+				title="Favorite places"
+				onclick={() => app.openJourney('places')}
+			>
+				<svg><use href="#i-star"></use></svg><span>{app.state.ui.placeCount}</span>
+			</button>
 		</div>
 	</div>
 </div>

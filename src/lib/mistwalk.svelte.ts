@@ -19,10 +19,13 @@ import {
 	groupSessionsByDay,
 	haversineMeters,
 	listCellNotes,
+	listPlaces,
 	normalizeFix,
 	parseCellKey,
 	progressStats,
+	removePlace,
 	setCellNote,
+	setPlace,
 	speedUnit,
 	unlockCells
 } from './core.ts';
@@ -52,6 +55,8 @@ import type {
 	MemberRecord,
 	MemberStatus,
 	PathPoint,
+	PlaceData,
+	PlaceDraft,
 	ReplayTrackInput,
 	SearchResult,
 	SessionView,
@@ -167,7 +172,7 @@ function initialUi() {
 		simHint: 'Tap the map to walk there.',
 		simSpeedLabel: '1×',
 		simVisible: false,
-		favoriteSummary: 'Walk a route twice to map your favorites.',
+		favoriteSummary: 'Walk a route twice to map repeat visits.',
 		gpsLabel: 'No fix',
 		gpsDetail: 'GPS is standing by',
 		gpsLevel: 'idle',
@@ -175,6 +180,7 @@ function initialUi() {
 		sessionCount: '0 walks',
 		historyCount: '0 days',
 		noteCount: '0 notes',
+		placeCount: '0 places',
 		nearestLabel: 'Find the nearest unexplored tile.',
 		storageUsage: 'Stored locally on this device.'
 	};
@@ -233,6 +239,10 @@ class MistWalk {
 		gps: { message: '', accuracy: null, ageMs: null, quality: 'idle' },
 		sessions: [],
 		notes: [],
+		places: [],
+		placeDraft: null,
+		placePick: false,
+		highlightPlace: null,
 		achievements: [],
 		replay: null,
 		guide: null,
@@ -615,6 +625,8 @@ class MistWalk {
 			reducedMotion: this.reducedMotion,
 			showGrid: this.state.settings.showGrid,
 			showFavorites: this.state.settings.showFavorites,
+			places: this.state.places,
+			highlightPlace: this.state.highlightPlace,
 			pulses: this.pulses,
 			zoom: this.map.zoom
 		});
@@ -802,8 +814,8 @@ class MistWalk {
 		ui.statDistance = formatDistance(stats.distance, this.state.settings.units);
 		ui.statStreak = String(stats.streak);
 		ui.favoriteSummary = stats.favoriteCells
-			? `${stats.favoriteCells.toLocaleString()} tile${stats.favoriteCells === 1 ? '' : 's'} crossed 2+ times, up to ${stats.maxVisits}×`
-			: 'Walk a route twice to map your favorites.';
+			? `${stats.favoriteCells.toLocaleString()} repeat-visit tile${stats.favoriteCells === 1 ? '' : 's'}, up to ${stats.maxVisits}×`
+			: 'Walk a route twice to map repeat visits.';
 		ui.walkSpeedUnit = speedUnit(this.state.settings.units);
 
 		const sessions = groupSessionsByDay(this.state.progress.sessions || [])
@@ -830,6 +842,11 @@ class MistWalk {
 			coordsLabel: formatCoordinate(note.lat, note.lng),
 			dateLabel: note.t ? new Date(note.t).toLocaleString() : 'No date'
 		}));
+		const places = listPlaces(this.state.progress).map((place) => ({
+			...place,
+			coordsLabel: formatCoordinate(place.lat, place.lng),
+			dateLabel: place.ut || place.t ? new Date(place.ut || place.t).toLocaleString() : 'No date'
+		}));
 		const achievements = achievementsFor(this.state.progress, stats);
 		const earned = new Set(achievements.filter((badge) => badge.earned).map((badge) => badge.id));
 		if (this.earnedAchievements) {
@@ -842,16 +859,26 @@ class MistWalk {
 		this.earnedAchievements = earned;
 		this.state.sessions = sessions;
 		this.state.notes = notes;
+		this.state.places = places;
 		this.state.achievements = achievements;
 		ui.badgeCount = `${earned.size}/${achievements.length}`;
 		ui.sessionCount = `${stats.sessions} walk${stats.sessions === 1 ? '' : 's'}`;
 		ui.historyCount = `${sessions.length} day${sessions.length === 1 ? '' : 's'}`;
 		ui.noteCount = `${notes.length} note${notes.length === 1 ? '' : 's'}`;
+		ui.placeCount = `${places.length} place${places.length === 1 ? '' : 's'}`;
+		if (
+			this.state.highlightPlace &&
+			this.state.highlightPlace !== this.state.placeDraft?.key &&
+			!places.some((place) => place.key === this.state.highlightPlace)
+		) {
+			this.state.highlightPlace = null;
+		}
 		if (typeof document !== 'undefined') {
 			document.title = stats.cellCount
 				? `MistWalk: ${stats.cellCount.toLocaleString()} tiles revealed`
 				: 'MistWalk: walk to uncover the world';
 		}
+		this.scheduleRender();
 	}
 
 	refreshSession() {
@@ -1252,7 +1279,7 @@ class MistWalk {
 			const from = verdict.from || fix;
 			const cells = cellsAlongLine(from, fix, 5);
 			if (!cells.length) cells.push(cellFromLatLng(fix.lat, fix.lng));
-			const added = unlockCells(this.state.progress, cells, fix.t, source);
+			const added = unlockCells(this.state.progress, cells, fix.t, source, session?.id || '');
 			addedCount = added.length;
 			if (added.length) {
 				session.unlocks += added.length;
@@ -1503,6 +1530,145 @@ class MistWalk {
 		this.hasCentered = true;
 		this.scheduleRender();
 		this.toast('Moved to your note.', 'info', 2400);
+	}
+
+	placeTargetLabel(): string {
+		const draft = this.state.placeDraft as PlaceDraft | null;
+		return draft ? formatCoordinate(draft.lat, draft.lng) : '';
+	}
+
+	openPlaceForm(lat: number, lng: number): void {
+		if (!this.state.progress || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+		const key = cellFromLatLng(lat, lng).key;
+		const existing = this.state.progress.places?.[key] as PlaceData | undefined;
+		this.state.placeDraft = {
+			key,
+			lat: existing?.lat ?? lat,
+			lng: existing?.lng ?? lng,
+			rating: existing?.rating ?? 0,
+			name: existing?.name ?? '',
+			comment: existing?.comment ?? '',
+			t: existing?.t,
+			ut: existing?.ut
+		} satisfies PlaceDraft;
+		this.state.placePick = false;
+		this.state.highlightPlace = key;
+		this.state.journey.tab = 'places';
+		this.openModal('journey-modal');
+		this.scheduleRender();
+	}
+
+	useCurrentPlace(): void {
+		const point = this.currentPoint();
+		if (!point) {
+			this.toast('No map position yet. Tap the map to choose a place.', 'info', 3000);
+			return;
+		}
+		this.openPlaceForm(point.lat, point.lng);
+	}
+
+	startPlacePick(): void {
+		this.closeAllModals();
+		this.state.placeDraft = null;
+		this.state.highlightPlace = null;
+		this.state.placePick = true;
+		this.scheduleRender();
+		this.toast('Tap the map to mark a favorite place.', 'info', 3600);
+	}
+
+	togglePlacePick(): void {
+		if (this.state.placePick) {
+			this.state.placePick = false;
+			this.toast('Place pick cancelled.', 'info', 2000);
+			return;
+		}
+		this.startPlacePick();
+	}
+
+	clearPlaceDraft(): void {
+		this.state.placeDraft = null;
+		this.state.highlightPlace = null;
+		this.state.placePick = false;
+		this.scheduleRender();
+	}
+
+	savePlace(input: Partial<PlaceData>): boolean {
+		const draft = this.state.placeDraft as PlaceDraft | null;
+		if (!draft || !this.state.progress) {
+			this.toast('Choose a place on the map first.', 'info', 2800);
+			return false;
+		}
+		const saved = setPlace(
+			this.state.progress,
+			draft.key,
+			{
+				lat: draft.lat,
+				lng: draft.lng,
+				rating: input.rating,
+				name: input.name,
+				comment: input.comment
+			},
+			Date.now()
+		);
+		if (!saved) {
+			this.toast('Choose a star rating from 1 to 5.', 'info', 2800);
+			return false;
+		}
+		this.state.placeDraft = { key: draft.key, ...saved } satisfies PlaceDraft;
+		this.state.highlightPlace = draft.key;
+		this.refreshProgress();
+		this.scheduleSave(200);
+		this.scheduleRender();
+		this.toast('Favorite place saved.', 'success', 2800);
+		return true;
+	}
+
+	editPlace(key: string): void {
+		const place = this.state.progress?.places?.[key] as PlaceData | undefined;
+		if (!place) return;
+		this.openPlaceForm(place.lat, place.lng);
+	}
+
+	deletePlace(key: string): void {
+		if (!this.state.progress) return;
+		if (!removePlace(this.state.progress, key)) return;
+		if (this.state.placeDraft?.key === key) this.state.placeDraft = null;
+		if (this.state.highlightPlace === key) this.state.highlightPlace = null;
+		this.refreshProgress();
+		this.scheduleSave(200);
+		this.scheduleRender();
+		this.toast('Favorite place removed.', 'info', 2400);
+	}
+
+	jumpToPlace(key: string): void {
+		const place = this.state.progress?.places?.[key] as PlaceData | undefined;
+		if (!place || !this.map) return;
+		this.closeAllModals();
+		this.state.follow = false;
+		this.refreshFollow();
+		this.map.setView(place.lat, place.lng, Math.max(17, this.map.zoom), false);
+		this.hasCentered = true;
+		this.state.highlightPlace = key;
+		this.scheduleRender();
+		this.toast('Moved to your favorite place.', 'info', 2400);
+	}
+
+	placeAt(lat: number, lng: number): (PlaceData & { key: string }) | null {
+		if (!this.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+		const click = this.map.project(lat, lng);
+		if (!click) return null;
+		let best: (PlaceData & { key: string }) | null = null;
+		let bestDistance = 24;
+		for (const place of this.state.places as Array<PlaceData & { key: string }>) {
+			const point = this.map.project(place.lat, place.lng);
+			if (!point) continue;
+			const distance = Math.hypot(point.x - click.x, point.y - click.y);
+			if (distance <= bestDistance) {
+				best = place;
+				bestDistance = distance;
+			}
+		}
+		return best;
 	}
 
 	guideToUnexplored() {
@@ -1891,6 +2057,19 @@ class MistWalk {
 	/* ------------------------------------------------------------------ */
 
 	onMapClick(lat: number, lng: number): void {
+		if (this.state.placePick) {
+			this.openPlaceForm(lat, lng);
+			return;
+		}
+		const place = this.placeAt(lat, lng);
+		if (place) {
+			this.openPlaceForm(place.lat, place.lng);
+			return;
+		}
+		if (this.state.highlightPlace) {
+			this.state.highlightPlace = null;
+			this.scheduleRender();
+		}
 		if (this.state.profile === 'demo') {
 			this.startSimulationTo(lat, lng);
 			return;
@@ -1933,6 +2112,7 @@ class MistWalk {
 		saveSettings(this.state.settings);
 		if (!this.state.profiles[next]) this.state.profiles[next] = await loadProfileAsync(next);
 		this.state.progress = this.state.profiles[next];
+		this.clearPlaceDraft();
 		this.gate.reset();
 		this.state.current = null;
 		this.hasCentered = false;
@@ -2158,12 +2338,14 @@ class MistWalk {
 	}
 
 	openJourney(tab = 'overview') {
-		this.state.journey.tab = ['overview', 'history', 'notes'].includes(tab) ? tab : 'overview';
+		this.state.journey.tab = ['overview', 'history', 'notes', 'places'].includes(tab)
+			? tab
+			: 'overview';
 		this.openModal('journey-modal');
 	}
 
 	setJourneyTab(tab: string): void {
-		if (!['overview', 'history', 'notes'].includes(tab)) return;
+		if (!['overview', 'history', 'notes', 'places'].includes(tab)) return;
 		this.state.journey.tab = tab;
 	}
 
@@ -2455,7 +2637,7 @@ class MistWalk {
 			['Walked', formatDistance(stats.distance, units)],
 			['Streak', `${stats.streak} day${stats.streak === 1 ? '' : 's'}`],
 			['Walks', String(stats.sessions || 0)],
-			['Favorites', stats.favoriteCells.toLocaleString()]
+			['Repeat visits', stats.favoriteCells.toLocaleString()]
 		];
 		rows.forEach(([label, value], index: number) => {
 			const x = 88 + (index % 2) * 452;
@@ -2470,7 +2652,7 @@ class MistWalk {
 		ctx.fillStyle = '#a3a3a3';
 		ctx.font = '400 24px Archivo, Segoe UI, sans-serif';
 		ctx.fillText(
-			`${this.state.achievements.filter((badge: Achievement) => badge.earned).length} badges · ${stats.notes || 0} notes · ${stats.favoriteCells} favorite tiles`,
+			`${this.state.achievements.filter((badge: Achievement) => badge.earned).length} badges · ${stats.notes || 0} notes · ${this.state.places.length} places · ${stats.favoriteCells} repeat-visit tiles`,
 			88,
 			980
 		);
@@ -2525,6 +2707,7 @@ class MistWalk {
 		const [live, demo] = await Promise.all([loadProfileAsync('live'), loadProfileAsync('demo')]);
 		this.state.profiles = { live, demo };
 		this.state.progress = this.state.profiles[this.state.profile];
+		this.clearPlaceDraft();
 		if (imported.settings) {
 			this.state.settings = { ...this.state.settings, ...imported.settings };
 		}
@@ -2573,6 +2756,7 @@ class MistWalk {
 		const fresh = createProgress();
 		this.state.progress = fresh;
 		this.state.profiles[profile] = fresh;
+		this.clearPlaceDraft();
 		await clearProfile(profile);
 		this.newSession();
 		this.refreshAll();
@@ -2992,6 +3176,7 @@ class MistWalk {
 		this.state.profiles = { ...this.state.profiles, demo: fresh };
 		this.state.profile = 'demo';
 		this.state.progress = fresh;
+		this.clearPlaceDraft();
 		this.state.settings.lastProfile = 'demo';
 		this.state.onboarding = false;
 		this.enterDemo();
@@ -3007,6 +3192,7 @@ class MistWalk {
 		const next = this.sampleReturnProfile;
 		this.state.profile = next;
 		this.state.progress = this.state.profiles[next];
+		this.clearPlaceDraft();
 		this.state.settings.lastProfile = next;
 		saveSettings(this.state.settings);
 		this.gate.reset();

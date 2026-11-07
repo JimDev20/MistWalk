@@ -34,6 +34,15 @@
 		>
 		<button
 			class="map-btn"
+			class:map-btn--accent={app.state.placePick}
+			type="button"
+			aria-label={app.state.placePick ? 'Cancel place pick' : 'Mark a favorite place'}
+			aria-pressed={app.state.placePick}
+			title={app.state.placePick ? 'Cancel place pick' : 'Mark a favorite place'}
+			onclick={() => app.togglePlacePick()}><svg><use href="#i-star"></use></svg></button
+		>
+		<button
+			class="map-btn"
 			type="button"
 			aria-label="Fit explored area"
 			onclick={() => app.fitExplored()}><svg><use href="#i-expand"></use></svg></button
