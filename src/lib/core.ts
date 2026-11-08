@@ -16,6 +16,7 @@ import type {
 	PlaceItem,
 	Progress,
 	ProgressSummary,
+	TravelMode,
 	Units,
 	Verdict
 } from './types.ts';
@@ -25,6 +26,8 @@ export const MAX_MERCATOR_LAT = 85.05112878;
 export const CELL_SIZE_M = 12;
 export const WALK_LIMIT_MPS = 3.0; // ~10.8 km/h: a very brisk walk
 export const VEHICLE_LIMIT_MPS = 4.2; // ~15 km/h: anything faster cannot unlock
+export const BIKE_LIMIT_MPS = 7.0; // ~25 km/h: a brisk bicycle
+export const MOTOR_LIMIT_MPS = 22.0; // ~80 km/h: above this is car traffic
 export const UNLOCK_ACCURACY_M = 35;
 export const VEHICLE_LOCKOUT_MS = 45_000;
 export const PATH_STEP_M = 4;
@@ -214,6 +217,27 @@ export function normalizeFix(input: FixInput | null | undefined): NormalizedFix 
 }
 
 /**
+ * Classify a ground speed into the transport mode that best matches it.
+ * Unknown or non-positive speeds are treated as walking.
+ */
+export function travelModeForSpeed(speed: number | null | undefined): TravelMode {
+	const value = Number(speed);
+	if (!Number.isFinite(value) || value <= WALK_LIMIT_MPS) return 'walk';
+	if (value <= VEHICLE_LIMIT_MPS) return 'run';
+	if (value <= BIKE_LIMIT_MPS) return 'bike';
+	if (value <= MOTOR_LIMIT_MPS) return 'motor';
+	return 'car';
+}
+
+export const TRAVEL_MODE_LABELS: Record<TravelMode, string> = {
+	walk: 'Walk',
+	run: 'Run',
+	bike: 'Bike',
+	motor: 'Motor',
+	car: 'Car'
+};
+
+/**
  * Stateful gate. Feed it every geolocation fix. It returns whether movement may
  * unlock cells, whether the user appears to be in a vehicle, and the distance
  * that should count toward walking statistics.
@@ -226,6 +250,7 @@ export class WalkGate {
 	lastFix: NormalizedFix | null;
 	lastUnlockFix: NormalizedFix | null;
 	vehicleUntil: number;
+	lastVehicleMode: TravelMode | null;
 	calmFixes: number;
 	lastReason: string;
 
@@ -247,6 +272,7 @@ export class WalkGate {
 		this.lastFix = null;
 		this.lastUnlockFix = null;
 		this.vehicleUntil = 0;
+		this.lastVehicleMode = null;
 		this.calmFixes = 0;
 		this.lastReason = 'ready';
 	}
@@ -255,6 +281,7 @@ export class WalkGate {
 		this.lastFix = null;
 		this.lastUnlockFix = null;
 		this.vehicleUntil = 0;
+		this.lastVehicleMode = null;
 		this.calmFixes = 0;
 		this.lastReason = 'ready';
 	}
@@ -266,6 +293,7 @@ export class WalkGate {
 		this.lastFix = null;
 		this.lastUnlockFix = null;
 		this.vehicleUntil = 0;
+		this.lastVehicleMode = null;
 		this.calmFixes = 0;
 	}
 
@@ -278,6 +306,7 @@ export class WalkGate {
 				reason: 'bad-fix',
 				distance: 0,
 				speed: null,
+				mode: 'walk',
 				vehicle: false,
 				accuracyOk: false
 			};
@@ -294,6 +323,7 @@ export class WalkGate {
 				reason: this.lastReason,
 				distance: 0,
 				speed: 0,
+				mode: 'walk',
 				from: fix,
 				to: fix,
 				vehicle: false,
@@ -309,6 +339,7 @@ export class WalkGate {
 				reason: 'duplicate',
 				distance: 0,
 				speed: null,
+				mode: 'walk',
 				vehicle: false,
 				accuracyOk
 			};
@@ -332,6 +363,7 @@ export class WalkGate {
 				reason: 'resume-jump',
 				distance: 0,
 				speed: rawSpeed,
+				mode: travelModeForSpeed(rawSpeed),
 				vehicle: false,
 				accuracyOk
 			};
@@ -347,6 +379,7 @@ export class WalkGate {
 				reason: 'gps-jump',
 				distance: 0,
 				speed: rawSpeed,
+				mode: travelModeForSpeed(rawSpeed),
 				vehicle: false,
 				accuracyOk
 			};
@@ -364,12 +397,17 @@ export class WalkGate {
 			// The vehicle's route must never become a walked corridor later.
 			this.lastUnlockFix = fix;
 			this.lastReason = 'too-fast';
+			const suspectedMode = travelModeForSpeed(reportedSpeed ?? rawSpeed);
+			const mode: TravelMode =
+				suspectedMode === 'walk' || suspectedMode === 'run' ? 'bike' : suspectedMode;
+			this.lastVehicleMode = mode;
 			return {
 				unlock: false,
 				walking: false,
 				reason: 'too-fast',
 				distance: 0,
 				speed: reportedSpeed ?? rawSpeed,
+				mode,
 				vehicle: true,
 				accuracyOk
 			};
@@ -394,6 +432,7 @@ export class WalkGate {
 					reason: 'vehicle-lockout',
 					distance: 0,
 					speed: reportedSpeed ?? rawSpeed,
+					mode: this.lastVehicleMode ?? 'bike',
 					vehicle: true,
 					accuracyOk
 				};
@@ -417,6 +456,7 @@ export class WalkGate {
 				reason: 'too-fast',
 				distance: 0,
 				speed: reportedSpeed ?? rawSpeed,
+				mode: travelModeForSpeed(reportedSpeed ?? rawSpeed),
 				from: fix,
 				to: fix,
 				vehicle: false,
@@ -438,6 +478,7 @@ export class WalkGate {
 				reason: this.lastReason,
 				distance: 0,
 				speed: 0,
+				mode: 'walk',
 				from,
 				to: fix,
 				vehicle: false,
@@ -453,6 +494,7 @@ export class WalkGate {
 				reason: 'weak-gps',
 				distance: 0,
 				speed: rawSpeed,
+				mode: travelModeForSpeed(rawSpeed),
 				from,
 				to: fix,
 				vehicle: false,
@@ -468,6 +510,7 @@ export class WalkGate {
 			reason: 'walking',
 			distance,
 			speed: reportedSpeed ?? rawSpeed,
+			mode: 'walk',
 			from,
 			to: fix,
 			vehicle: false,

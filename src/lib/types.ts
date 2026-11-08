@@ -2,6 +2,7 @@ export type ProfileName = 'live' | 'demo';
 export type Units = 'metric' | 'imperial';
 export type MapProvider = 'osm' | 'google';
 export type Basemap = 'osm' | 'osmfr' | 'cyclosm';
+export type TravelMode = 'walk' | 'run' | 'bike' | 'motor' | 'car';
 
 export interface LatLng {
 	lat: number;
@@ -97,6 +98,7 @@ export interface Verdict {
 	reason: string;
 	distance: number;
 	speed: number | null;
+	mode: TravelMode;
 	vehicle: boolean;
 	accuracyOk: boolean;
 	from?: NormalizedFix;

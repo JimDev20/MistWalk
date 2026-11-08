@@ -34,6 +34,7 @@ import {
 	round5,
 	setCellNote,
 	setPlace,
+	travelModeForSpeed,
 	unlockCells,
 	unprojectMeters
 } from './core.ts';
@@ -102,6 +103,22 @@ describe('grid and projection', () => {
 	});
 });
 
+describe('travel mode classification', () => {
+	it('maps speed ranges to walk, run, bike, motor, and car', () => {
+		expect(travelModeForSpeed(null)).toBe('walk');
+		expect(travelModeForSpeed(0)).toBe('walk');
+		expect(travelModeForSpeed(3.0)).toBe('walk');
+		expect(travelModeForSpeed(3.01)).toBe('run');
+		expect(travelModeForSpeed(4.2)).toBe('run');
+		expect(travelModeForSpeed(4.21)).toBe('bike');
+		expect(travelModeForSpeed(7.0)).toBe('bike');
+		expect(travelModeForSpeed(7.01)).toBe('motor');
+		expect(travelModeForSpeed(22.0)).toBe('motor');
+		expect(travelModeForSpeed(22.01)).toBe('car');
+		expect(travelModeForSpeed(40)).toBe('car');
+	});
+});
+
 describe('walking gate', () => {
 	it('accepts walking at 1.4 m/s', () => {
 		const gate = new WalkGate();
@@ -129,6 +146,7 @@ describe('walking gate', () => {
 		expect(rejected.unlock).toBe(false);
 		expect(rejected.reason).toBe('too-fast');
 		expect(rejected.vehicle).toBe(false);
+		expect(rejected.mode).toBe('bike');
 		expect(rejected.distance).toBe(0);
 
 		const walking = gate.evaluate({ ...afterCar, accuracy: 5, t: t0 + 2000 });
@@ -150,6 +168,7 @@ describe('walking gate', () => {
 		expect(fast.unlock).toBe(false);
 		expect(fast.reason).toBe('too-fast');
 		expect(fast.vehicle).toBe(true);
+		expect(fast.mode).toBe('bike');
 	});
 
 	it('pauses unlocking for 45 seconds after vehicle speed', () => {
@@ -161,14 +180,17 @@ describe('walking gate', () => {
 		expect(car.unlock).toBe(false);
 		expect(car.vehicle).toBe(true);
 		expect(car.reason).toBe('too-fast');
+		expect(car.mode).toBe('motor');
 
 		const stopped = gate.evaluate({ lat: 14.554808, lng: 121.0244, accuracy: 5, t: t0 + 30_000 });
 		expect(stopped.unlock).toBe(false);
 		expect(stopped.reason).toBe('vehicle-lockout');
+		expect(stopped.mode).toBe('motor');
 
 		const sitting = gate.evaluate({ lat: 14.5548082, lng: 121.0244, accuracy: 5, t: t0 + 31_000 });
 		expect(sitting.unlock).toBe(false);
 		expect(sitting.reason).toBe('vehicle-lockout');
+		expect(sitting.mode).toBe('motor');
 
 		const a = gate.evaluate({ lat: 14.554819, lng: 121.0244, accuracy: 5, t: t0 + 32_000 });
 		const b = gate.evaluate({ lat: 14.55483, lng: 121.0244, accuracy: 5, t: t0 + 33_000 });
@@ -177,6 +199,7 @@ describe('walking gate', () => {
 		expect(b.unlock).toBe(false);
 		expect(c.unlock).toBe(true);
 		expect(c.reason).toBe('walking');
+		expect(c.mode).toBe('walk');
 		expect(c.from!.lat).toBeGreaterThan(14.5548);
 	});
 
