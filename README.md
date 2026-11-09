@@ -185,7 +185,7 @@ npm run format    # write formatting fixes
 
 ## How the flow works
 
-- **Live profile**: geolocation fixes pass through `WalkGate` in `src/lib/core.ts`. Tiles unlock only at walking pace; vehicle-speed fixes pause unlocking for 45 seconds and move the anchor so a car route never becomes a walked corridor.
+- **Live profile**: geolocation fixes pass through `WalkGate` in `src/lib/core.ts`. Tiles unlock only at walking pace. The gate classifies each fix as walk, run, bike, motor, or car; running is too fast to count, while bike, motor, and car speeds pause unlocking for 45 seconds and move the anchor so a vehicle route never becomes a walked corridor.
 - **Simulator profile**: a virtual walker moves at real walking speed while the UI can accelerate time. The same gate and grid logic applies.
 - **Approval gate**: pending, rejected, and signed-out accounts cannot open the map or simulator. New accounts use email and password, without an email code or link. Allowlisted owner emails are auto-approved admins; everyone else waits for approval. The `/admin` page shows its own password sign-in and renders member data only for an approved admin account.
 - **Persistence**: profiles and settings are written to `localStorage` and mirrored to IndexedDB.

@@ -27,6 +27,7 @@ import {
 	setCellNote,
 	setPlace,
 	speedUnit,
+	TRAVEL_MODE_LABELS,
 	unlockCells
 } from './core.ts';
 import {
@@ -1306,28 +1307,31 @@ class MistWalk {
 				this.setStatus('live', 'Live', fix.accuracy ? `±${Math.round(fix.accuracy)} m` : '');
 			}
 		} else if (verdict.reason === 'too-fast') {
+			const modeLabel = TRAVEL_MODE_LABELS[verdict.mode];
 			if (verdict.vehicle) {
 				if (Date.now() - this.lastVehicleToast > 20_000) {
 					this.lastVehicleToast = Date.now();
 					this.toast(
-						'Vehicle speed detected. Unlocking is paused until you walk again.',
+						`${modeLabel} speed detected. Unlocking is paused until you walk again.`,
 						'warn',
 						5000
 					);
 					this.haptic();
 				}
-				this.setStatus('vehicle', 'Vehicle', 'Unlock paused');
+				this.setStatus('vehicle', modeLabel, 'Unlock paused');
 			} else {
 				if (Date.now() - this.lastFastToast > 20_000) {
 					this.lastFastToast = Date.now();
 					this.toast(
-						'Too fast to count. Slow to walking pace and the mist will lift again.',
+						`${modeLabel} speed is too fast to count. Slow to walking pace and the mist will lift again.`,
 						'warn',
 						4800
 					);
 				}
-				this.setStatus('vehicle', 'Too fast', 'Unlock paused');
+				this.setStatus('vehicle', modeLabel, 'Unlock paused');
 			}
+		} else if (verdict.reason === 'vehicle-lockout') {
+			this.setStatus('vehicle', TRAVEL_MODE_LABELS[verdict.mode], 'Unlock paused');
 		} else if (verdict.reason === 'weak-gps') {
 			if (Date.now() - this.lastWeakToast > 25_000) {
 				this.lastWeakToast = Date.now();

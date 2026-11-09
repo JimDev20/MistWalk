@@ -33,9 +33,9 @@
 					<span class="help-num">02</span>
 					<h3>Walking only</h3>
 					<p>
-						Faster than a brisk walk (about 10.8 km/h) never unlocks tiles. Vehicle-speed fixes
-						pause unlocking for 45 seconds, and unlocking resumes only after three calm walking
-						fixes.
+						Faster than a brisk walk (about 10.8 km/h) never unlocks tiles. The gate names the pace
+						it detects (run, bike, motor, or car); bike, motor, and car speeds pause unlocking for
+						45 seconds, and unlocking resumes only after three calm walking fixes.
 					</p>
 				</article>
 				<article class="help-card">
