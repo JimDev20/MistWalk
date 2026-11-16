@@ -1,6 +1,6 @@
 # MistWalk
 
-MistWalk is a local-first walking exploration app. The world starts hidden in mist, and every 12-metre tile you cross with a valid walking GPS fix is cleared permanently.
+MistWalk is a local-first walking exploration app. The map stays visible through a translucent mist, and every 12-metre tile you cross with a valid walking GPS fix is cleared permanently. Repeat visits thin the remaining mist until the tile is fully clear.
 
 This repository is the SvelteKit rebuild of the original static PWA. The old app is preserved unchanged in `legacy/` for reference.
 
@@ -22,7 +22,7 @@ The app works fully offline-first with only map tiles needing a network connecti
 - **Owner console** at `/admin` with its own email-and-password sign-in; only an approved admin can load member data.
 - **Cross-device sync** for approved accounts, with automatic upload after saves and a restore prompt when another device is newer.
 - **Journey record** with levels, streaks, repeat-visit heat, tile notes, favorite places, one combined history record per day, and route replay.
-- **Accurate repeat visits** counted once per 12-metre tile per walk session, without resetting permanent unlocks or old heat.
+- **Accurate repeat visits** counted once per 12-metre tile per walk session, without resetting permanent unlocks or old heat. Each repeat visit clears more of the tile so the map shows through the fading amber proof.
 - **Favorite places** with one place per tile, 1–5 star ratings, optional comments, and a large pseudo-3D highlight for the selected place.
 - **Achievements** for exploration, distance, streaks, repeat visits, and notes.
 - **Private tile notes and favorite places** stored locally, plus both in GeoJSON exports.

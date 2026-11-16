@@ -26,7 +26,8 @@
 					<h3>Walk to reveal</h3>
 					<p>
 						Every point is snapped to a 12-metre tile. A tile unlocks only when a GPS fix inside it
-						passes the walking gate. The fog lifts permanently; old tiles never return.
+						passes the walking gate. The map stays visible through the mist; the first visit clears
+						most of the tile, and every repeat visit thins the rest until it is fully clear.
 					</p>
 				</article>
 				<article class="help-card">
@@ -53,11 +54,12 @@
 					<h3>Field record</h3>
 					<p>
 						Open Journey to see badges, GPS signal, nearest mist, daily walk history, tile notes,
-						and favorite places. The amber repeat-visit layer counts a tile once per walk, not once
-						per GPS fix. Keep one favorite place per 12-metre tile: rate it 1–5 stars, add an
-						optional comment, and select it to show the big star highlight on the map. Pause a walk,
-						arrive at a simulator target, or switch profiles to archive it. Same-day walks merge
-						into one daily record, and routes export as private GPX or GeoJSON files.
+						and favorite places. The repeat-visit layer counts a tile once per walk, not once per
+						GPS fix, and its amber proof fades as repeat visits clear the tile. Keep one favorite
+						place per 12-metre tile: rate it 1–5 stars, add an optional comment, and select it to
+						show the big star highlight on the map. Pause a walk, arrive at a simulator target, or
+						switch profiles to archive it. Same-day walks merge into one daily record, and routes
+						export as private GPX or GeoJSON files.
 					</p>
 				</article>
 				<article class="help-card">

@@ -1,4 +1,4 @@
-/* MistWalk fog renderer — an opaque, textured mist with permanent cut-outs. */
+/* MistWalk fog renderer — a translucent mist that lets the map show through. */
 
 import { cellCorners, cellFromLatLng, haversineMeters, parseCellKey } from './core.ts';
 import type {
@@ -204,18 +204,18 @@ export class FogRenderer {
 		ctx.clearRect(0, 0, w, h);
 
 		const base = ctx.createLinearGradient(0, 0, 0, h);
-		base.addColorStop(0, '#1c1c1c');
-		base.addColorStop(0.55, '#131313');
-		base.addColorStop(1, '#090909');
+		base.addColorStop(0, 'rgba(24, 26, 31, 0.78)');
+		base.addColorStop(0.55, 'rgba(15, 17, 21, 0.74)');
+		base.addColorStop(1, 'rgba(8, 10, 14, 0.82)');
 		ctx.fillStyle = base;
 		ctx.fillRect(0, 0, w, h);
 
 		// Large slow mist blooms.
 		const drift = (time / 90000) % 1;
 		const blooms = [
-			{ x: 0.18 + drift * 0.06, y: 0.25, r: 0.62, c: 'rgba(150, 150, 150, 0.24)' },
-			{ x: 0.82 - drift * 0.05, y: 0.62, r: 0.7, c: 'rgba(112, 112, 112, 0.20)' },
-			{ x: 0.54, y: 0.08 + drift * 0.04, r: 0.48, c: 'rgba(180, 180, 180, 0.13)' }
+			{ x: 0.18 + drift * 0.06, y: 0.25, r: 0.62, c: 'rgba(150, 150, 150, 0.16)' },
+			{ x: 0.82 - drift * 0.05, y: 0.62, r: 0.7, c: 'rgba(112, 112, 112, 0.14)' },
+			{ x: 0.54, y: 0.08 + drift * 0.04, r: 0.48, c: 'rgba(180, 180, 180, 0.09)' }
 		];
 		for (const b of blooms) {
 			const gradient = ctx.createRadialGradient(
@@ -252,7 +252,7 @@ export class FogRenderer {
 			Math.max(w, h) * 0.75
 		);
 		vignette.addColorStop(0, 'rgba(0,0,0,0)');
-		vignette.addColorStop(1, 'rgba(0,0,0,0.52)');
+		vignette.addColorStop(1, 'rgba(0,0,0,0.38)');
 		ctx.fillStyle = vignette;
 		ctx.fillRect(0, 0, w, h);
 	}
@@ -267,7 +267,6 @@ export class FogRenderer {
 		const mask = this.maskCtx;
 		mask.clearRect(0, 0, w, h);
 		mask.globalCompositeOperation = 'source-over';
-		mask.fillStyle = '#fff';
 
 		let drawn = 0;
 		for (const key of Object.keys(cells || {})) {
@@ -276,6 +275,11 @@ export class FogRenderer {
 			const pts = cellCornersScreen(project, cell);
 			if (!pts) continue;
 			if (!polygon(mask, pts)) continue;
+			// The first visit reveals most of the map. Every repeat visit thins
+			// the remaining mist until the tile is completely clear.
+			const count = Math.max(1, Number(cells[key]?.n) || 1);
+			const reveal = Math.min(1, 0.72 + (count - 1) * 0.09);
+			mask.fillStyle = `rgba(255, 255, 255, ${reveal})`;
 			mask.fill();
 			drawn += 1;
 		}
@@ -300,7 +304,9 @@ export class FogRenderer {
 				if (!cell || !this.isVisibleCell(cell)) continue;
 				const pts = cellCornersScreen(project, cell);
 				if (!pts || !polygon(ctx, pts)) continue;
-				const strength = Math.min(0.3, 0.07 + Math.log2(count) * 0.05);
+				// Repeat-visit colour fades as the tile clears, so the map stays
+				// the main layer while the warm tint still proves the visits.
+				const strength = Math.min(0.16, Math.max(0.025, 0.14 / Math.sqrt(count)));
 				ctx.fillStyle = `rgba(251, 191, 36, ${strength})`;
 				ctx.fill();
 				favorites += 1;
