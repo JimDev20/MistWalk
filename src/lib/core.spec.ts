@@ -120,6 +120,12 @@ describe('travel mode classification', () => {
 });
 
 describe('walking gate', () => {
+	const M_PER_DEG = 111_195;
+	const north = (base: { lat: number; lng: number }, meters: number) => ({
+		lat: base.lat + meters / M_PER_DEG,
+		lng: base.lng
+	});
+
 	it('accepts walking at 1.4 m/s', () => {
 		const gate = new WalkGate();
 		const t0 = 1_700_000_000_000;
@@ -134,73 +140,124 @@ describe('walking gate', () => {
 		expect(second.distance).toBeLessThan(1.5);
 	});
 
-	it('rejects 6.68 m/s and does not bridge the rejected corridor', () => {
+	it('blocks an isolated quick fix without naming a vehicle', () => {
 		const gate = new WalkGate();
 		const t0 = 1_700_000_000_000;
 		const start = { lat: 14.5547, lng: 121.0244 };
-		const car = { lat: 14.55476, lng: 121.0244 };
-		const afterCar = { lat: 14.554772, lng: 121.0244 };
+		const car = north(start, 6.68);
+		const afterCar = north(car, 1.4);
 
 		expect(gate.evaluate({ ...start, accuracy: 5, t: t0 }).unlock).toBe(true);
 		const rejected = gate.evaluate({ ...car, accuracy: 5, t: t0 + 1000 });
 		expect(rejected.unlock).toBe(false);
-		expect(rejected.reason).toBe('too-fast');
+		expect(rejected.reason).toBe('speed-spike');
 		expect(rejected.vehicle).toBe(false);
 		expect(rejected.mode).toBe('bike');
 		expect(rejected.distance).toBe(0);
+		expect(gate.vehicleUntil).toBe(0);
 
 		const walking = gate.evaluate({ ...afterCar, accuracy: 5, t: t0 + 2000 });
 		expect(walking.unlock).toBe(true);
 		expect(walking.from!.lat).toBeCloseTo(car.lat, 6);
 	});
 
-	it('treats a reported vehicle speed as a lockout even with little movement', () => {
+	it('ignores a noisy reported speed while actual displacement is walking pace', () => {
 		const gate = new WalkGate();
 		const t0 = 1_700_000_000_000;
-		gate.evaluate({ lat: 14.5547, lng: 121.0244, accuracy: 5, t: t0 });
-		const fast = gate.evaluate({
-			lat: 14.55471,
-			lng: 121.0244,
-			accuracy: 5,
-			speed: 6.68,
-			t: t0 + 1000
-		});
-		expect(fast.unlock).toBe(false);
-		expect(fast.reason).toBe('too-fast');
-		expect(fast.vehicle).toBe(true);
-		expect(fast.mode).toBe('bike');
+		const start = { lat: 14.5547, lng: 121.0244 };
+		gate.evaluate({ ...start, accuracy: 5, t: t0 });
+
+		let last = gate.evaluate({ ...start, accuracy: 5, t: t0 });
+		for (let second = 1; second <= 10; second += 1) {
+			last = gate.evaluate({
+				...north(start, 1.4 * second),
+				accuracy: 5,
+				speed: 9.5,
+				t: t0 + second * 1000
+			});
+			expect(last.vehicle).toBe(false);
+			expect(last.reason).not.toBe('too-fast');
+			expect(last.mode).toBe('walk');
+		}
+		expect(last.unlock).toBe(true);
+		expect(last.reason).toBe('walking');
+		expect(gate.vehicleUntil).toBe(0);
 	});
 
-	it('pauses unlocking for 45 seconds after vehicle speed', () => {
+	it('never alarms on one large GPS jump, then keeps walking', () => {
 		const gate = new WalkGate();
 		const t0 = 1_700_000_000_000;
-		gate.evaluate({ lat: 14.5547, lng: 121.0244, accuracy: 5, t: t0 });
+		const start = { lat: 14.5547, lng: 121.0244 };
+		gate.evaluate({ ...start, accuracy: 5, t: t0 });
+		for (let second = 1; second <= 5; second += 1) {
+			gate.evaluate({ ...north(start, 1.4 * second), accuracy: 5, t: t0 + second * 1000 });
+		}
 
-		const car = gate.evaluate({ lat: 14.554808, lng: 121.0244, accuracy: 5, t: t0 + 1000 });
+		const jumped = north(start, 1.4 * 5 + 20);
+		const spike = gate.evaluate({ ...jumped, accuracy: 5, t: t0 + 6000 });
+		expect(spike.unlock).toBe(false);
+		expect(spike.reason).toBe('speed-spike');
+		expect(spike.vehicle).toBe(false);
+		expect(gate.vehicleUntil).toBe(0);
+
+		const resumed = gate.evaluate({
+			...north(jumped, 1.4),
+			accuracy: 5,
+			t: t0 + 7000
+		});
+		expect(resumed.unlock).toBe(true);
+		expect(resumed.reason).toBe('walking');
+		expect(resumed.mode).toBe('walk');
+	});
+
+	it('pauses unlocking for 45 seconds after sustained vehicle speed', () => {
+		const gate = new WalkGate();
+		const t0 = 1_700_000_000_000;
+		const start = { lat: 14.5547, lng: 121.0244 };
+		gate.evaluate({ ...start, accuracy: 5, t: t0 });
+
+		let car = gate.evaluate({ ...north(start, 12), accuracy: 5, t: t0 + 1000 });
 		expect(car.unlock).toBe(false);
-		expect(car.vehicle).toBe(true);
-		expect(car.reason).toBe('too-fast');
-		expect(car.mode).toBe('motor');
+		expect(car.vehicle).toBe(false);
+		expect(car.reason).toBe('speed-spike');
 
-		const stopped = gate.evaluate({ lat: 14.554808, lng: 121.0244, accuracy: 5, t: t0 + 30_000 });
+		let confirmed = car;
+		for (let second = 2; second <= 7; second += 1) {
+			car = gate.evaluate({ ...north(start, 12 * second), accuracy: 5, t: t0 + second * 1000 });
+			expect(car.unlock).toBe(false);
+			if (car.vehicle && car.reason === 'too-fast') confirmed = car;
+		}
+		expect(confirmed.vehicle).toBe(true);
+		expect(confirmed.reason).toBe('too-fast');
+		expect(confirmed.mode).toBe('motor');
+
+		const stopped = gate.evaluate({
+			...north(start, 12 * 7),
+			accuracy: 5,
+			t: t0 + 30_000
+		});
 		expect(stopped.unlock).toBe(false);
 		expect(stopped.reason).toBe('vehicle-lockout');
 		expect(stopped.mode).toBe('motor');
 
-		const sitting = gate.evaluate({ lat: 14.5548082, lng: 121.0244, accuracy: 5, t: t0 + 31_000 });
+		const sitting = gate.evaluate({
+			...north(start, 12 * 7 + 0.02),
+			accuracy: 5,
+			t: t0 + 31_000
+		});
 		expect(sitting.unlock).toBe(false);
 		expect(sitting.reason).toBe('vehicle-lockout');
 		expect(sitting.mode).toBe('motor');
 
-		const a = gate.evaluate({ lat: 14.554819, lng: 121.0244, accuracy: 5, t: t0 + 32_000 });
-		const b = gate.evaluate({ lat: 14.55483, lng: 121.0244, accuracy: 5, t: t0 + 33_000 });
-		const c = gate.evaluate({ lat: 14.554841, lng: 121.0244, accuracy: 5, t: t0 + 34_000 });
+		const a = gate.evaluate({ ...north(start, 12 * 7 + 1.3), accuracy: 5, t: t0 + 32_000 });
+		const b = gate.evaluate({ ...north(start, 12 * 7 + 2.6), accuracy: 5, t: t0 + 33_000 });
+		const c = gate.evaluate({ ...north(start, 12 * 7 + 3.9), accuracy: 5, t: t0 + 34_000 });
 		expect(a.unlock).toBe(false);
 		expect(b.unlock).toBe(false);
 		expect(c.unlock).toBe(true);
 		expect(c.reason).toBe('walking');
 		expect(c.mode).toBe('walk');
-		expect(c.from!.lat).toBeGreaterThan(14.5548);
+		expect(c.from!.lat).toBeGreaterThan(north(start, 12 * 7).lat);
 	});
 
 	it('starts a fresh first fix after reanchoring', () => {

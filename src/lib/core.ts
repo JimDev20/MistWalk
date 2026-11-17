@@ -30,6 +30,12 @@ export const BIKE_LIMIT_MPS = 7.0; // ~25 km/h: a brisk bicycle
 export const MOTOR_LIMIT_MPS = 22.0; // ~80 km/h: above this is car traffic
 export const UNLOCK_ACCURACY_M = 35;
 export const VEHICLE_LOCKOUT_MS = 45_000;
+export const SPEED_WINDOW_MS = 15_000;
+export const SPEED_RECENT_MS = 6_000;
+export const SPEED_WINDOW_MIN_MS = 5_000;
+export const SPEED_WINDOW_MIN_DISTANCE_M = 8;
+export const FAST_CONFIRM_FIXES = 3;
+export const VEHICLE_CONFIRM_FIXES = 2;
 export const PATH_STEP_M = 4;
 export const MAX_PATH_POINTS = 12_000;
 export const PROGRESS_VERSION = 3;
@@ -253,6 +259,9 @@ export class WalkGate {
 	lastVehicleMode: TravelMode | null;
 	calmFixes: number;
 	lastReason: string;
+	history: NormalizedFix[];
+	fastFixes: number;
+	vehicleFixes: number;
 
 	constructor({
 		limit = WALK_LIMIT_MPS,
@@ -275,6 +284,9 @@ export class WalkGate {
 		this.lastVehicleMode = null;
 		this.calmFixes = 0;
 		this.lastReason = 'ready';
+		this.history = [];
+		this.fastFixes = 0;
+		this.vehicleFixes = 0;
 	}
 
 	reset() {
@@ -284,6 +296,9 @@ export class WalkGate {
 		this.lastVehicleMode = null;
 		this.calmFixes = 0;
 		this.lastReason = 'ready';
+		this.history = [];
+		this.fastFixes = 0;
+		this.vehicleFixes = 0;
 	}
 
 	/** Used when the page resumes: do not bridge a large gap. */
@@ -295,6 +310,62 @@ export class WalkGate {
 		this.vehicleUntil = 0;
 		this.lastVehicleMode = null;
 		this.calmFixes = 0;
+		this.history = [];
+		this.fastFixes = 0;
+		this.vehicleFixes = 0;
+	}
+
+	remember(fix: NormalizedFix): void {
+		this.history.push(fix);
+		while (this.history.length > 1 && fix.t - this.history[0].t > SPEED_WINDOW_MS) {
+			this.history.shift();
+		}
+		if (this.history.length > 96) this.history.splice(0, this.history.length - 96);
+	}
+
+	/**
+	 * Speed over a span, using net displacement between accurate fixes. Single
+	 * jitter spikes cannot satisfy the duration/distance gate, so walking is not
+	 * mislabelled as running, cycling, or driving.
+	 */
+	windowSpeed(
+		spanMs = SPEED_WINDOW_MS,
+		minMs = SPEED_WINDOW_MIN_MS
+	): { speed: number; duration: number; distance: number; trusted: boolean } {
+		const samples = this.history.filter(
+			(fix) => fix.accuracy === null || fix.accuracy <= this.maxAccuracy
+		);
+		if (samples.length < 2) return { speed: 0, duration: 0, distance: 0, trusted: false };
+		const latest = samples[samples.length - 1];
+		let oldest = latest;
+		for (let i = samples.length - 2; i >= 0; i -= 1) {
+			if (latest.t - samples[i].t > spanMs) break;
+			oldest = samples[i];
+		}
+		const duration = (latest.t - oldest.t) / 1000;
+		if (!Number.isFinite(duration) || duration <= 0) {
+			return { speed: 0, duration: 0, distance: 0, trusted: false };
+		}
+		const distance = haversineMeters(oldest, latest);
+		const accuracy = Math.max(oldest.accuracy ?? 50, latest.accuracy ?? 50);
+		const noise = Math.max(6, Math.min(60, accuracy));
+		const trusted =
+			duration * 1000 >= minMs && distance >= SPEED_WINDOW_MIN_DISTANCE_M && distance > noise;
+		return { speed: distance / duration, duration, distance, trusted };
+	}
+
+	/**
+	 * A long window catches sustained speed; a recent window makes sure it is
+	 * still true. A one-off position shift cannot pull both windows up, and the
+	 * device-reported walking speed vetoes false vehicle alarms.
+	 */
+	confirmedSpeed(fix: NormalizedFix): { speed: number; trusted: boolean } {
+		const long = this.windowSpeed(SPEED_WINDOW_MS, SPEED_WINDOW_MIN_MS);
+		const recent = this.windowSpeed(SPEED_RECENT_MS, SPEED_WINDOW_MIN_MS);
+		const reportedWalking =
+			fix.speed !== null && Number.isFinite(fix.speed) && fix.speed <= this.limit;
+		const trusted = long.trusted && recent.trusted && !reportedWalking;
+		return { speed: trusted ? Math.min(long.speed, recent.speed) : 0, trusted };
 	}
 
 	evaluate(input: FixInput): Verdict {
@@ -315,6 +386,7 @@ export class WalkGate {
 
 		if (!this.lastFix) {
 			this.lastFix = fix;
+			this.history = [fix];
 			this.lastReason = accuracyOk ? 'first-fix' : 'weak-gps';
 			this.lastUnlockFix = accuracyOk ? fix : null;
 			return {
@@ -347,7 +419,6 @@ export class WalkGate {
 
 		const distance = haversineMeters(this.lastFix, fix);
 		const rawSpeed = distance / dt;
-		const reportedSpeed = fix.speed;
 		const now = fix.t;
 
 		// A long gap can hide a car journey. Never bridge it.
@@ -356,6 +427,9 @@ export class WalkGate {
 			// Anchor at the new place. Never let the next walk retroactively unlock
 			// the road that was crossed during the gap.
 			this.lastUnlockFix = fix;
+			this.history = [fix];
+			this.fastFixes = 0;
+			this.vehicleFixes = 0;
 			this.lastReason = 'resume-jump';
 			return {
 				unlock: false,
@@ -372,6 +446,9 @@ export class WalkGate {
 		if (distance > 300 && dt < 60) {
 			this.lastFix = fix;
 			this.lastUnlockFix = fix;
+			this.history = [fix];
+			this.fastFixes = 0;
+			this.vehicleFixes = 0;
 			this.lastReason = 'gps-jump';
 			return {
 				unlock: false,
@@ -385,41 +462,20 @@ export class WalkGate {
 			};
 		}
 
-		const vehicleSuspected =
-			(reportedSpeed !== null && reportedSpeed > this.vehicleLimit) ||
-			(rawSpeed > this.vehicleLimit && distance > 8 && accuracyOk) ||
-			(distance > 400 && dt < 120);
-
-		if (vehicleSuspected) {
-			this.vehicleUntil = now + this.lockoutMs;
-			this.calmFixes = 0;
-			this.lastFix = fix;
-			// The vehicle's route must never become a walked corridor later.
-			this.lastUnlockFix = fix;
-			this.lastReason = 'too-fast';
-			const suspectedMode = travelModeForSpeed(reportedSpeed ?? rawSpeed);
-			const mode: TravelMode =
-				suspectedMode === 'walk' || suspectedMode === 'run' ? 'bike' : suspectedMode;
-			this.lastVehicleMode = mode;
-			return {
-				unlock: false,
-				walking: false,
-				reason: 'too-fast',
-				distance: 0,
-				speed: reportedSpeed ?? rawSpeed,
-				mode,
-				vehicle: true,
-				accuracyOk
-			};
+		this.remember(fix);
+		let window = this.confirmedSpeed(fix);
+		if (window.trusted) {
+			if (window.speed > this.vehicleLimit) this.vehicleFixes += 1;
+			else this.vehicleFixes = 0;
+			if (window.speed > this.limit) this.fastFixes += 1;
+			else this.fastFixes = 0;
+		} else {
+			this.fastFixes = 0;
+			this.vehicleFixes = 0;
 		}
 
 		if (now < this.vehicleUntil) {
-			const calm =
-				rawSpeed >= 0.25 &&
-				rawSpeed <= 2.2 &&
-				(reportedSpeed === null || reportedSpeed <= 2.5) &&
-				distance >= 0.25 &&
-				distance < 15;
+			const calm = rawSpeed >= 0.25 && rawSpeed <= 2.2 && distance >= 0.25 && distance < 15;
 			this.calmFixes = calm ? this.calmFixes + 1 : 0;
 			this.lastFix = fix;
 			// Move the unlock anchor with the vehicle, not with the last footstep.
@@ -431,22 +487,55 @@ export class WalkGate {
 					walking: false,
 					reason: 'vehicle-lockout',
 					distance: 0,
-					speed: reportedSpeed ?? rawSpeed,
+					speed: window.trusted ? window.speed : rawSpeed,
 					mode: this.lastVehicleMode ?? 'bike',
 					vehicle: true,
 					accuracyOk
 				};
 			}
-			// Three calm fixes in a row: assume the walk resumed.
+			// Three calm fixes in a row: assume the walk resumed with a fresh window.
 			this.vehicleUntil = 0;
 			this.calmFixes = 0;
+			this.history = [fix];
+			this.fastFixes = 0;
+			this.vehicleFixes = 0;
+			window = { speed: 0, trusted: false };
 		}
 
-		const tooFastForWalk =
-			(reportedSpeed !== null && reportedSpeed > this.limit) ||
-			(accuracyOk && rawSpeed > this.limit);
+		const vehicleConfirmed =
+			window.trusted &&
+			window.speed > this.vehicleLimit &&
+			rawSpeed > this.limit &&
+			this.vehicleFixes >= VEHICLE_CONFIRM_FIXES;
 
-		if (tooFastForWalk) {
+		if (vehicleConfirmed) {
+			this.vehicleUntil = now + this.lockoutMs;
+			this.calmFixes = 0;
+			this.lastFix = fix;
+			// The vehicle's route must never become a walked corridor later.
+			this.lastUnlockFix = fix;
+			this.lastReason = 'too-fast';
+			const mode = travelModeForSpeed(window.speed);
+			this.lastVehicleMode = mode;
+			return {
+				unlock: false,
+				walking: false,
+				reason: 'too-fast',
+				distance: 0,
+				speed: window.speed,
+				mode,
+				vehicle: true,
+				accuracyOk
+			};
+		}
+
+		const fastConfirmed =
+			window.trusted &&
+			window.speed > this.limit &&
+			rawSpeed > this.limit &&
+			this.fastFixes >= FAST_CONFIRM_FIXES;
+
+		if (fastConfirmed) {
 			this.lastFix = fix;
 			this.lastUnlockFix = fix;
 			this.lastReason = 'too-fast';
@@ -455,8 +544,28 @@ export class WalkGate {
 				walking: false,
 				reason: 'too-fast',
 				distance: 0,
-				speed: reportedSpeed ?? rawSpeed,
-				mode: travelModeForSpeed(reportedSpeed ?? rawSpeed),
+				speed: window.speed,
+				mode: travelModeForSpeed(window.speed),
+				from: fix,
+				to: fix,
+				vehicle: false,
+				accuracyOk
+			};
+		}
+
+		// One isolated quick fix can be GPS jitter. Block that fix from unlocking
+		// but stay silent: no vehicle lockout and no false "too fast" warning.
+		if (accuracyOk && dt >= 0.5 && rawSpeed > this.limit) {
+			this.lastFix = fix;
+			this.lastUnlockFix = fix;
+			this.lastReason = 'speed-spike';
+			return {
+				unlock: false,
+				walking: false,
+				reason: 'speed-spike',
+				distance: 0,
+				speed: rawSpeed,
+				mode: travelModeForSpeed(rawSpeed),
 				from: fix,
 				to: fix,
 				vehicle: false,
@@ -509,7 +618,7 @@ export class WalkGate {
 			walking: true,
 			reason: 'walking',
 			distance,
-			speed: reportedSpeed ?? rawSpeed,
+			speed: window.trusted ? window.speed : rawSpeed,
 			mode: 'walk',
 			from,
 			to: fix,
